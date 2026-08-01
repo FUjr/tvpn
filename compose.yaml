@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17-alpine
+    image: ${TVPN_POSTGRES_IMAGE:-postgres:17-alpine}
     environment:
       POSTGRES_DB: tvpn
       POSTGRES_USER: tvpn
@@ -15,6 +15,7 @@ services:
     restart: unless-stopped
 
   app:
+    image: ${TVPN_APP_IMAGE:-tvpn:local}
     build: .
     user: "${TVPN_CONTAINER_UID:-1000}:${TVPN_CONTAINER_GID:-1000}"
     environment:

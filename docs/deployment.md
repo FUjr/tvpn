@@ -24,8 +24,11 @@ cp .env.example .env
 ```sh
 openssl rand -hex 32
 ./scripts/init-secrets.sh
-docker compose up -d --build
+docker compose pull
+docker compose up -d --no-build
 ```
+
+`.env.example` 默认从阿里云杭州区 `fjrcn` 命名空间拉取 Tvpn 和 PostgreSQL 镜像。当前发布平台为 `linux/amd64`；其他架构需要改用对应平台镜像或在目标机执行 `docker compose up -d --build` 从源码构建。
 
 `TVPN_POSTGRES_PASSWORD` 必须在 PostgreSQL 卷首次初始化前确定。已有数据卷不会因为修改 `.env` 自动更改数据库用户密码；这种情况下需要先在 PostgreSQL 内执行密码变更，再同步修改 `.env`。
 

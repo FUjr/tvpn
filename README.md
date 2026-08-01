@@ -32,6 +32,8 @@ Web 界面提供登录、浏览器式地址栏与内嵌代理页面。管理员�
 
 公网部署可复制 `.env.example`，通过 `.env` 传入 HTTPS 管理域、代理通配域、监听地址和数据库密码；Docker Compose 与 Nginx 完整示例见 `docs/deployment.md`。
 
+默认生产示例从阿里云杭州区拉取 `fjrcn/tvpn` 和 `fjrcn/tvpn-pg`，镜像地址同样可在 `.env` 中覆盖；本地开发不配置时仍使用源码构建和官方 PostgreSQL 镜像。
+
 ## 验证
 
 ```sh
