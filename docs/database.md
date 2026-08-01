@@ -20,3 +20,9 @@
 - `policies`、`policy_rules`：保存四种策略及精确主机、域名后缀、CIDR、URL 前缀规则。
 - `user_policies`、`ldap_group_policies`：分别绑定用户和 LDAP 组；请求必须通过全部有效策略。
 - `audit_events`：保存认证、配置、顶层导航和拒绝事件，不保存请求正文、Cookie 或 URL 查询参数。
+
+## 004 代理上下文
+
+- `proxy_contexts`、`proxy_routes`：将用户浏览上下文及每个上游 Origin 映射到随机代理子域。
+- `proxy_tickets`、`proxy_sessions`：保存一次性票据和代理域会话的令牌摘要，管理域 Cookie 不会发送给代理页面。
+- `proxy_cookies`：按原始 Domain、Path、Secure 等属性保存上游 Cookie；值使用 `TVPN_MASTER_KEY_FILE` 加密。

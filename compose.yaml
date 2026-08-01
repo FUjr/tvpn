@@ -15,16 +15,20 @@ services:
 
   app:
     build: .
+    user: "${TVPN_CONTAINER_UID:-1000}:${TVPN_CONTAINER_GID:-1000}"
     environment:
       TVPN_DATABASE_URL: postgres://tvpn:tvpn-development-only@postgres:5432/tvpn?sslmode=disable
-      TVPN_APP_ORIGIN: http://app.localhost:8080
-      TVPN_PROXY_BASE_DOMAIN: proxy.localhost:8080
+      TVPN_APP_ORIGIN: http://app.localhost:${TVPN_PORT:-8080}
+      TVPN_PROXY_BASE_DOMAIN: proxy.localhost:${TVPN_PORT:-8080}
       TVPN_ENV: development
+      TVPN_MASTER_KEY_FILE: /run/secrets/tvpn_master_key
     ports:
       - "${TVPN_PORT:-8080}:8080"
     depends_on:
       postgres:
         condition: service_healthy
+    secrets:
+      - tvpn_master_key
     healthcheck:
       test: ["CMD", "/tvpn", "healthcheck"]
       interval: 10s
@@ -33,3 +37,7 @@ services:
 
 volumes:
   tvpn-postgres:
+
+secrets:
+  tvpn_master_key:
+    file: ./secrets/tvpn_master_key

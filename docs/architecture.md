@@ -10,3 +10,7 @@ Tvpn 是 Go 单体服务，内嵌 React 构建产物。PostgreSQL 保存身份�
 2. 注入运行时捕获可拦截请求并通过 WebSocket 多路复用。
 3. 上游原生 WebSocket 使用独立隧道。
 
+用户在管理域创建代理上下文后会获得两分钟有效、只能使用一次的 bootstrap URL。bootstrap 在 `.proxy` 域设置独立 HttpOnly 会话，再跳转到随机 Origin 路由。管理会话不会暴露给被代理页面。
+
+服务端对每次导航、子资源和重定向重新解析 DNS，先检查所有解析地址，再将实际连接固定到已检查地址。这样策略判断和 TCP/TLS 连接使用同一地址集合，避免 DNS 重绑定绕过。
+

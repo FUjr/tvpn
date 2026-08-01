@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/FUjr/tvpn/internal/config"
 	"github.com/FUjr/tvpn/internal/database"
 	"github.com/FUjr/tvpn/internal/ldapauth"
+	proxyservice "github.com/FUjr/tvpn/internal/proxy"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -23,6 +26,7 @@ type Server struct {
 	router    http.Handler
 	authHTTP  *auth.HTTP
 	adminHTTP *admin.HTTP
+	proxyHTTP *proxyservice.Service
 }
 
 func New(cfg config.Config) (*Server, error) {
@@ -43,7 +47,12 @@ func New(cfg config.Config) (*Server, error) {
 		}
 	}
 	ldapService := ldapauth.New(db, cfg.LDAPBindPasswordFile, cfg.LDAPCAFile, cfg.Development && cfg.LDAPAllowInsecure)
-	s := &Server{cfg: cfg, db: db, authHTTP: auth.NewHTTP(store, cfg.SessionTTL, !cfg.Development, ldapService), adminHTTP: admin.NewHTTP(db, store, ldapService)}
+	proxyHTTP, err := proxyservice.NewService(db, store, cfg.AppOrigin, cfg.ProxyBaseDomain, cfg.MasterKey, !cfg.Development, cfg.SessionTTL)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	s := &Server{cfg: cfg, db: db, authHTTP: auth.NewHTTP(store, cfg.SessionTTL, !cfg.Development, ldapService), adminHTTP: admin.NewHTTP(db, store, ldapService), proxyHTTP: proxyHTTP}
 	s.router = s.routes()
 	return s, nil
 }
@@ -64,6 +73,11 @@ func (s *Server) routes() http.Handler {
 		r.Use(s.authHTTP.RequireCSRF)
 		r.Mount("/", s.adminHTTP.Routes())
 	})
+	r.Route("/api/v1/proxy/contexts", func(r chi.Router) {
+		r.Use(s.authHTTP.Authenticate)
+		r.Use(s.authHTTP.RequireCSRF)
+		r.Mount("/", s.proxyHTTP.AppRoutes())
+	})
 	r.Get("/health/live", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -82,11 +96,38 @@ func (s *Server) routes() http.Handler {
 	return r
 }
 
-func (s *Server) Handler() http.Handler { return s.router }
-func (s *Server) Close()                { s.db.Close() }
+func (s *Server) Handler() http.Handler {
+	app, _ := url.Parse(s.cfg.AppOrigin)
+	appHost := strings.ToLower(app.Hostname())
+	proxyHost := strings.ToLower(serverHostname(s.cfg.ProxyBaseDomain))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/health/") {
+			s.router.ServeHTTP(w, r)
+			return
+		}
+		host := strings.ToLower(serverHostname(r.Host))
+		if host == proxyHost || strings.HasSuffix(host, "."+proxyHost) {
+			s.proxyHTTP.ServeHTTP(w, r)
+			return
+		}
+		if host != appHost {
+			http.Error(w, "misdirected request", http.StatusMisdirectedRequest)
+			return
+		}
+		s.router.ServeHTTP(w, r)
+	})
+}
+func (s *Server) Close() { s.db.Close() }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+func serverHostname(value string) string {
+	if host, _, err := net.SplitHostPort(value); err == nil {
+		return host
+	}
+	return strings.TrimSuffix(value, ".")
 }

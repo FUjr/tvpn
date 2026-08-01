@@ -127,6 +127,35 @@ paths:
       operationId: listAuditEvents
       responses:
         '200': { description: Most recent 200 audit events }
+  /proxy/contexts/:
+    post:
+      operationId: createProxyContext
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      responses:
+        '201': { description: Context, one-time bootstrap URL and direct route URL }
+        '403': { $ref: '#/components/responses/Problem' }
+  /proxy/contexts/{id}:
+    get:
+      operationId: getProxyContext
+      parameters: [{ $ref: '#/components/parameters/ID' }]
+      responses:
+        '200': { description: Proxy context }
+    delete:
+      operationId: closeProxyContext
+      parameters:
+        - { $ref: '#/components/parameters/ID' }
+        - { $ref: '#/components/parameters/CSRF' }
+      responses:
+        '204': { description: Context closed and routes invalidated }
+  /proxy/contexts/{id}/navigate:
+    post:
+      operationId: navigateProxyContext
+      parameters:
+        - { $ref: '#/components/parameters/ID' }
+        - { $ref: '#/components/parameters/CSRF' }
+      responses:
+        '200': { description: New one-time bootstrap URL and route URL }
+        '403': { $ref: '#/components/responses/Problem' }
 components:
   parameters:
     CSRF:

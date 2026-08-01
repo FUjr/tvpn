@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/rand"
 	"errors"
 	"os"
 	"strings"
@@ -19,6 +20,7 @@ type Config struct {
 	LDAPBindPasswordFile       string
 	LDAPCAFile                 string
 	LDAPAllowInsecure          bool
+	MasterKey                  []byte
 }
 
 func Load() (Config, error) {
@@ -43,6 +45,26 @@ func Load() (Config, error) {
 	}
 	if !cfg.Development && cfg.LDAPAllowInsecure {
 		return Config{}, errors.New("TVPN_LDAP_ALLOW_INSECURE cannot be enabled in production")
+	}
+	keyFile := strings.TrimSpace(os.Getenv("TVPN_MASTER_KEY_FILE"))
+	if keyFile == "" {
+		if !cfg.Development {
+			return Config{}, errors.New("TVPN_MASTER_KEY_FILE is required in production")
+		}
+		cfg.MasterKey = make([]byte, 32)
+		if _, err := rand.Read(cfg.MasterKey); err != nil {
+			return Config{}, errors.New("cannot generate development master key")
+		}
+	} else {
+		value, err := os.ReadFile(keyFile)
+		if err != nil {
+			return Config{}, err
+		}
+		value = []byte(strings.TrimRight(string(value), "\r\n"))
+		if len(value) != 32 {
+			return Config{}, errors.New("TVPN_MASTER_KEY_FILE must contain exactly 32 bytes")
+		}
+		cfg.MasterKey = value
 	}
 	return cfg, nil
 }

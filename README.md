@@ -10,6 +10,8 @@ LDAP 登录支持 LDAPS/StartTLS、搜索绑定或 DN 模板，并在登录成�
 
 访问策略支持禁止内网、白名单、黑名单和禁止访问，可同时绑定用户与 LDAP 组。多个策略按交集执行，未分配策略的用户默认禁止访问。管理员 API 可维护用户、LDAP、组、策略和最近 200 条审计事件。
 
+HTTP 代理已实现独立 Origin 路由、一次性 bootstrap、请求级策略和 DNS 重绑定防护、重定向改写，以及 AES-256-GCM 加密的服务端 Cookie Jar。
+
 ## 开发环境
 
 要求 Docker 及 Docker Compose：

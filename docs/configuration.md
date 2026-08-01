@@ -12,10 +12,15 @@
 | `TVPN_LDAP_BIND_PASSWORD_FILE` | 条件 | LDAP 搜索账号的绑定密码文件 |
 | `TVPN_LDAP_CA_FILE` | 否 | 私有 LDAP CA 的 PEM 文件 |
 | `TVPN_LDAP_ALLOW_INSECURE` | 否 | 仅开发环境允许明文 LDAP，生产环境拒绝启动 |
+| `TVPN_MASTER_KEY_FILE` | 生产必需 | 恰好 32 字节的代理 Cookie 加密主密钥文件 |
 
 真实部署不得使用 Compose 示例密码。密码、LDAP 绑定凭据和主密钥将通过挂载文件或 Docker Secret 注入。
 
 宿主机端口可在运行 Compose 时用 `TVPN_PORT` 覆盖，例如 `TVPN_PORT=18080 docker compose up -d`。
+
+`scripts/dev.sh` 会在首次运行时生成忽略版本控制的 `secrets/tvpn_master_key`。直接运行 Compose 前应先执行 `scripts/init-secrets.sh`；更换此密钥会使现有上游 Cookie 无法解密。
+
+本地 Compose 通过 `TVPN_CONTAINER_UID`、`TVPN_CONTAINER_GID` 让非 root 容器读取宿主机 0600 Secret，`scripts/dev.sh` 会自动传入当前用户 ID。生产环境应使用容器平台的 Secret 权限映射。
 
 引导管理员只在数据库没有任何用户时创建。之后即使 Secret 仍然挂载，也不会覆盖账号或密码。
 
