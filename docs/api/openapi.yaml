@@ -1,0 +1,56 @@
+openapi: 3.1.0
+info:
+  title: Tvpn API
+  version: 0.1.0
+servers:
+  - url: /api/v1
+paths:
+  /auth/login:
+    post:
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string, format: password }
+      responses:
+        '200': { description: Authenticated session }
+        '401': { $ref: '#/components/responses/Problem' }
+  /auth/session:
+    get:
+      operationId: getSession
+      responses:
+        '200': { description: Current session }
+        '401': { $ref: '#/components/responses/Problem' }
+  /auth/logout:
+    post:
+      operationId: logout
+      parameters:
+        - $ref: '#/components/parameters/CSRF'
+      responses:
+        '204': { description: Session removed }
+components:
+  parameters:
+    CSRF:
+      in: header
+      name: X-CSRF-Token
+      required: true
+      schema: { type: string }
+  responses:
+    Problem:
+      description: RFC 9457 compatible error
+      content:
+        application/problem+json:
+          schema:
+            type: object
+            required: [type, title, status, detail]
+            properties:
+              type: { type: string, format: uri }
+              title: { type: string }
+              status: { type: integer }
+              detail: { type: string }

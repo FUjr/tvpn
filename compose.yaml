@@ -21,7 +21,7 @@ services:
       TVPN_PROXY_BASE_DOMAIN: proxy.localhost:8080
       TVPN_ENV: development
     ports:
-      - "8080:8080"
+      - "${TVPN_PORT:-8080}:8080"
     depends_on:
       postgres:
         condition: service_healthy
@@ -33,4 +33,3 @@ services:
 
 volumes:
   tvpn-postgres:
-

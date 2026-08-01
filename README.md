@@ -4,6 +4,8 @@ Tvpn 是一个有服务端的 WebVPN。用户登录后在浏览器式地址栏�
 
 项目当前处于首版实现阶段，产品名称暂定为 Tvpn。
 
+当前已实现 PostgreSQL 自动迁移、本地 Argon2id 账号、数据库会话与 CSRF 防护。首次启动可通过 Secret 文件创建引导管理员，详见 `docs/configuration.md`。
+
 ## 开发环境
 
 要求 Docker 及 Docker Compose：
@@ -21,4 +23,3 @@ Tvpn 是一个有服务端的 WebVPN。用户登录后在浏览器式地址栏�
 ```
 
 部署、环境变量、安全边界和浏览器兼容性分别见 `docs/`。本项目采用 AGPL-3.0 许可证。
-
