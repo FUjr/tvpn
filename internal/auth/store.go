@@ -15,6 +15,18 @@ import (
 )
 
 var ErrInvalidCredentials = errors.New("invalid credentials")
+var ErrUserNotFound = errors.New("user not found")
+
+type LDAPGroup struct {
+	DN   string
+	Name string
+}
+type LDAPIdentity struct {
+	Username    string
+	DisplayName string
+	Email       string
+	Groups      []LDAPGroup
+}
 
 type User struct {
 	ID           uuid.UUID `json:"id"`
@@ -45,9 +57,46 @@ func (s *Store) FindUserByUsername(ctx context.Context, username string) (User, 
 		FROM users WHERE normalized_username=$1 AND disabled_at IS NULL`, normalizeUsername(username)).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &user.Email, &user.AuthSource, &user.IsAdmin, &user.PasswordHash)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return User{}, ErrInvalidCredentials
+		return User{}, ErrUserNotFound
 	}
 	return user, err
+}
+
+func (s *Store) UpsertLDAPUser(ctx context.Context, identity LDAPIdentity) (User, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return User{}, err
+	}
+	defer tx.Rollback(ctx)
+	user := User{Username: strings.TrimSpace(identity.Username), DisplayName: strings.TrimSpace(identity.DisplayName), Email: strings.TrimSpace(identity.Email), AuthSource: "ldap"}
+	err = tx.QueryRow(ctx, `INSERT INTO users (id,username,normalized_username,display_name,email,auth_source)
+		VALUES ($1,$2,$3,$4,$5,'ldap') ON CONFLICT (normalized_username) DO UPDATE SET username=excluded.username,
+		display_name=excluded.display_name,email=excluded.email,updated_at=now() WHERE users.auth_source='ldap'
+		RETURNING id,is_admin`, uuid.New(), user.Username, normalizeUsername(user.Username), user.DisplayName, user.Email).Scan(&user.ID, &user.IsAdmin)
+	if err != nil {
+		return User{}, err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM user_ldap_groups WHERE user_id=$1`, user.ID); err != nil {
+		return User{}, err
+	}
+	for _, group := range identity.Groups {
+		var groupID uuid.UUID
+		err = tx.QueryRow(ctx, `INSERT INTO ldap_groups (id,external_dn,name) VALUES ($1,$2,$3)
+			ON CONFLICT (external_dn) DO UPDATE SET name=excluded.name,last_seen_at=now() RETURNING id`, uuid.New(), group.DN, group.Name).Scan(&groupID)
+		if err != nil {
+			return User{}, err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO user_ldap_groups (user_id,group_id) VALUES ($1,$2)`, user.ID, groupID); err != nil {
+			return User{}, err
+		}
+	}
+	if _, err = tx.Exec(ctx, `UPDATE users SET last_login_at=now() WHERE id=$1`, user.ID); err != nil {
+		return User{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return User{}, err
+	}
+	return user, nil
 }
 
 func (s *Store) CreateLocalUser(ctx context.Context, username, displayName, email, password string, admin bool) (User, error) {

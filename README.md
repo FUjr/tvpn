@@ -6,6 +6,8 @@ Tvpn 是一个有服务端的 WebVPN。用户登录后在浏览器式地址栏�
 
 当前已实现 PostgreSQL 自动迁移、本地 Argon2id 账号、数据库会话与 CSRF 防护。首次启动可通过 Secret 文件创建引导管理员，详见 `docs/configuration.md`。
 
+LDAP 登录支持 LDAPS/StartTLS、搜索绑定或 DN 模板，并在登录成功后即时创建用户、同步组成员关系；本地同名账号不会回退到 LDAP。
+
 ## 开发环境
 
 要求 Docker 及 Docker Compose：

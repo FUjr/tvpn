@@ -11,6 +11,7 @@ import (
 	"github.com/FUjr/tvpn/internal/auth"
 	"github.com/FUjr/tvpn/internal/config"
 	"github.com/FUjr/tvpn/internal/database"
+	"github.com/FUjr/tvpn/internal/ldapauth"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -39,7 +40,8 @@ func New(cfg config.Config) (*Server, error) {
 			return nil, err
 		}
 	}
-	s := &Server{cfg: cfg, db: db, authHTTP: auth.NewHTTP(store, cfg.SessionTTL, !cfg.Development)}
+	ldapService := ldapauth.New(db, cfg.LDAPBindPasswordFile, cfg.LDAPCAFile, cfg.Development && cfg.LDAPAllowInsecure)
+	s := &Server{cfg: cfg, db: db, authHTTP: auth.NewHTTP(store, cfg.SessionTTL, !cfg.Development, ldapService)}
 	s.router = s.routes()
 	return s, nil
 }

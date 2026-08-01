@@ -16,6 +16,9 @@ type Config struct {
 	Development                bool
 	BootstrapAdminUsername     string
 	BootstrapAdminPasswordFile string
+	LDAPBindPasswordFile       string
+	LDAPCAFile                 string
+	LDAPAllowInsecure          bool
 }
 
 func Load() (Config, error) {
@@ -28,12 +31,18 @@ func Load() (Config, error) {
 		Development:                os.Getenv("TVPN_ENV") != "production",
 		BootstrapAdminUsername:     strings.TrimSpace(os.Getenv("TVPN_BOOTSTRAP_ADMIN_USERNAME")),
 		BootstrapAdminPasswordFile: strings.TrimSpace(os.Getenv("TVPN_BOOTSTRAP_ADMIN_PASSWORD_FILE")),
+		LDAPBindPasswordFile:       strings.TrimSpace(os.Getenv("TVPN_LDAP_BIND_PASSWORD_FILE")),
+		LDAPCAFile:                 strings.TrimSpace(os.Getenv("TVPN_LDAP_CA_FILE")),
+		LDAPAllowInsecure:          os.Getenv("TVPN_LDAP_ALLOW_INSECURE") == "true",
 	}
 	if cfg.DatabaseURL == "" {
 		return Config{}, errors.New("TVPN_DATABASE_URL is required")
 	}
 	if cfg.BootstrapAdminUsername != "" && cfg.BootstrapAdminPasswordFile == "" {
 		return Config{}, errors.New("TVPN_BOOTSTRAP_ADMIN_PASSWORD_FILE is required when bootstrap admin is configured")
+	}
+	if !cfg.Development && cfg.LDAPAllowInsecure {
+		return Config{}, errors.New("TVPN_LDAP_ALLOW_INSECURE cannot be enabled in production")
 	}
 	return cfg, nil
 }

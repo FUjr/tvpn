@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 )
@@ -16,10 +17,15 @@ type HTTP struct {
 	store  *Store
 	ttl    time.Duration
 	secure bool
+	ldap   LDAPAuthenticator
 }
 
-func NewHTTP(store *Store, ttl time.Duration, secure bool) *HTTP {
-	return &HTTP{store: store, ttl: ttl, secure: secure}
+type LDAPAuthenticator interface {
+	Authenticate(context.Context, string, string) (LDAPIdentity, error)
+}
+
+func NewHTTP(store *Store, ttl time.Duration, secure bool, ldap LDAPAuthenticator) *HTTP {
+	return &HTTP{store: store, ttl: ttl, secure: secure, ldap: ldap}
 }
 
 func (h *HTTP) Login(w http.ResponseWriter, r *http.Request) {
@@ -32,8 +38,8 @@ func (h *HTTP) Login(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusBadRequest, "invalid_request", "请求格式无效")
 		return
 	}
-	user, err := h.store.FindUserByUsername(r.Context(), input.Username)
-	if err != nil || user.AuthSource != "local" || !VerifyPassword(input.Password, user.PasswordHash) {
+	user, err := h.authenticate(r.Context(), input.Username, input.Password)
+	if err != nil {
 		problem(w, http.StatusUnauthorized, "invalid_credentials", "用户名或密码错误")
 		return
 	}
@@ -44,6 +50,27 @@ func (h *HTTP) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	h.setCookie(w, session.Token, session.ExpiresAt)
 	writeJSON(w, http.StatusOK, map[string]any{"user": session.User, "csrf_token": session.CSRFToken, "expires_at": session.ExpiresAt})
+}
+
+func (h *HTTP) authenticate(ctx context.Context, username, password string) (User, error) {
+	user, err := h.store.FindUserByUsername(ctx, username)
+	if err == nil && user.AuthSource == "local" {
+		if VerifyPassword(password, user.PasswordHash) {
+			return user, nil
+		}
+		return User{}, ErrInvalidCredentials
+	}
+	if err != nil && !errors.Is(err, ErrUserNotFound) {
+		return User{}, ErrInvalidCredentials
+	}
+	if h.ldap == nil {
+		return User{}, ErrInvalidCredentials
+	}
+	identity, err := h.ldap.Authenticate(ctx, username, password)
+	if err != nil {
+		return User{}, ErrInvalidCredentials
+	}
+	return h.store.UpsertLDAPUser(ctx, identity)
 }
 
 func (h *HTTP) Session(w http.ResponseWriter, r *http.Request) {
