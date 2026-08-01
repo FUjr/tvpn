@@ -12,6 +12,8 @@ LDAP 登录支持 LDAPS/StartTLS、搜索绑定或 DN 模板，并在登录成�
 
 HTTP 代理已实现独立 Origin 路由、一次性 bootstrap、请求级策略和 DNS 重绑定防护、重定向改写，以及 AES-256-GCM 加密的服务端 Cookie Jar。
 
+注入运行时会 Hook URL 与导航行为；Fetch、XHR、SSE 和 Beacon 强制走页面级复用 WebSocket。页面创建的原生 WebSocket 使用独立隧道，已验证文本/二进制帧和子协议兼容。具体限制见 `docs/compatibility.md`。
+
 ## 开发环境
 
 要求 Docker 及 Docker Compose：

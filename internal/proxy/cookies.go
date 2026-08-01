@@ -56,7 +56,15 @@ func (s *Store) SaveCookies(ctx context.Context, cipher *Cipher, contextID uuid.
 }
 
 func (s *Store) Cookies(ctx context.Context, cipher *Cipher, contextID uuid.UUID, target *url.URL) ([]*http.Cookie, error) {
-	rows, err := s.db.Query(ctx, `SELECT name,domain,path,value_encrypted,host_only,secure FROM proxy_cookies WHERE context_id=$1 AND(expires_at IS NULL OR expires_at>now())`, contextID)
+	return s.cookies(ctx, cipher, contextID, target, false)
+}
+
+func (s *Store) VisibleCookies(ctx context.Context, cipher *Cipher, contextID uuid.UUID, target *url.URL) ([]*http.Cookie, error) {
+	return s.cookies(ctx, cipher, contextID, target, true)
+}
+
+func (s *Store) cookies(ctx context.Context, cipher *Cipher, contextID uuid.UUID, target *url.URL, visibleOnly bool) ([]*http.Cookie, error) {
+	rows, err := s.db.Query(ctx, `SELECT name,domain,path,value_encrypted,host_only,secure,http_only FROM proxy_cookies WHERE context_id=$1 AND(expires_at IS NULL OR expires_at>now())`, contextID)
 	if err != nil {
 		return nil, err
 	}
@@ -66,9 +74,12 @@ func (s *Store) Cookies(ctx context.Context, cipher *Cipher, contextID uuid.UUID
 	for rows.Next() {
 		var name, domain, cookiePath string
 		var sealed []byte
-		var hostOnly, secure bool
-		if err := rows.Scan(&name, &domain, &cookiePath, &sealed, &hostOnly, &secure); err != nil {
+		var hostOnly, secure, httpOnly bool
+		if err := rows.Scan(&name, &domain, &cookiePath, &sealed, &hostOnly, &secure, &httpOnly); err != nil {
 			return nil, err
+		}
+		if visibleOnly && httpOnly {
+			continue
 		}
 		if secure && target.Scheme != "https" {
 			continue

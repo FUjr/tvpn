@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"io"
@@ -183,7 +184,89 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		httpapi.Problem(w, http.StatusUnauthorized, "proxy_session_invalid", "代理会话已失效")
 		return
 	}
+	switch r.URL.Path {
+	case "/__tvpn/runtime.js":
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(runtimeJS)
+		return
+	case "/__tvpn/resolve":
+		s.resolveURL(w, r, route)
+		return
+	case "/__tvpn/cookie":
+		s.setDocumentCookie(w, r, route)
+		return
+	case "/__tvpn/mux":
+		s.serveMux(w, r, route)
+		return
+	case "/__tvpn/ws":
+		s.serveWebSocket(w, r, route)
+		return
+	}
 	s.forward(w, r, route)
+}
+
+func (s *Service) setDocumentCookie(w http.ResponseWriter, r *http.Request, route Route) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var input struct {
+		Cookie string `json:"cookie"`
+	}
+	if !httpapi.DecodeJSON(w, r, &input) {
+		return
+	}
+	cookie, err := http.ParseSetCookie(input.Cookie)
+	if err != nil || cookie.HttpOnly {
+		httpapi.Problem(w, http.StatusUnprocessableEntity, "invalid_cookie", "Cookie 格式无效")
+		return
+	}
+	cookie.HttpOnly = false
+	target, err := url.Parse(route.Scheme + "://" + hostWithPort(route.Host, route.Port, route.Scheme) + r.Header.Get("X-Tvpn-Upstream-Path"))
+	if err != nil {
+		proxyInternal(w)
+		return
+	}
+	if err := s.store.SaveCookies(r.Context(), s.cipher, route.ContextID, target, []*http.Cookie{cookie}); err != nil {
+		proxyInternal(w)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Service) resolveURL(w http.ResponseWriter, r *http.Request, route Route) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var input struct {
+		URL string `json:"url"`
+	}
+	if !httpapi.DecodeJSON(w, r, &input) {
+		return
+	}
+	input.URL = s.normalizeClientURL(r.Context(), route, input.URL)
+	target, decision, err := s.authorize(r.Context(), route.UserID, input.URL)
+	if err != nil {
+		httpapi.Problem(w, http.StatusUnprocessableEntity, "invalid_target", "目标 URL 无效")
+		return
+	}
+	if !decision.Allowed {
+		s.audit(r.Context(), route.UserID, "proxy.denied", input.URL, "denied")
+		httpapi.Problem(w, http.StatusForbidden, "target_denied", "访问策略拒绝该目标")
+		return
+	}
+	mapped, err := s.store.ResolveRoute(r.Context(), route.ContextID, route.UserID, target.URL)
+	if err != nil {
+		proxyInternal(w)
+		return
+	}
+	httpapi.WriteJSON(w, http.StatusOK, map[string]string{"url": s.routeURL(mapped, target.URL)})
 }
 
 func (s *Service) bootstrap(w http.ResponseWriter, r *http.Request) {
@@ -295,6 +378,26 @@ func (s *Service) forward(w http.ResponseWriter, r *http.Request, route Route) {
 		response.Header.Set("Access-Control-Allow-Origin", browserOrigin)
 	}
 	stripHopHeaders(response.Header)
+	contentType := response.Header.Get("Content-Type")
+	if response.StatusCode >= 200 && response.StatusCode < 300 && (strings.Contains(strings.ToLower(contentType), "text/html") || strings.Contains(strings.ToLower(contentType), "text/css")) {
+		rewritten, rewriteErr := s.rewriteResponse(r.Context(), route, target.URL, contentType, response.Body)
+		if rewriteErr != nil {
+			httpapi.Problem(w, http.StatusBadGateway, "rewrite_failed", "目标页面无法安全改写")
+			return
+		}
+		response.Header.Del("Content-Length")
+		response.Header.Del("Content-Encoding")
+		response.Header.Del("ETag")
+		response.Header.Del("Content-MD5")
+		copyResponseHeaders(w.Header(), response.Header)
+		w.WriteHeader(response.StatusCode)
+		_, _ = io.Copy(w, bytes.NewReader(rewritten))
+		if r.Header.Get("Sec-Fetch-Dest") == "document" {
+			s.store.UpdateCurrentURL(r.Context(), route.ContextID, target.URL.String())
+			s.audit(r.Context(), route.UserID, "proxy.navigate", target.URL.String(), "allowed")
+		}
+		return
+	}
 	copyResponseHeaders(w.Header(), response.Header)
 	w.WriteHeader(response.StatusCode)
 	_, _ = io.Copy(w, response.Body)
@@ -355,6 +458,34 @@ func (s *Service) mapProxyURL(ctx context.Context, value string) (string, bool) 
 	parsed.Scheme = route.Scheme
 	parsed.Host = hostWithPort(route.Host, route.Port, route.Scheme)
 	return parsed.String(), true
+}
+func (s *Service) normalizeClientURL(ctx context.Context, current Route, value string) string {
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return value
+	}
+	base := strings.ToLower(hostname(s.proxyBaseDomain))
+	host := strings.ToLower(parsed.Hostname())
+	if !strings.HasSuffix(host, "."+base) {
+		return value
+	}
+	label := strings.TrimSuffix(host, "."+base)
+	mapped, err := s.store.RouteByLabel(ctx, label)
+	if err != nil || mapped.ContextID != current.ContextID || mapped.UserID != current.UserID {
+		return value
+	}
+	websocket := parsed.Scheme == "ws" || parsed.Scheme == "wss"
+	if websocket {
+		if mapped.Scheme == "https" {
+			parsed.Scheme = "wss"
+		} else {
+			parsed.Scheme = "ws"
+		}
+	} else {
+		parsed.Scheme = mapped.Scheme
+	}
+	parsed.Host = hostWithPort(mapped.Host, mapped.Port, mapped.Scheme)
+	return parsed.String()
 }
 func querySuffix(value string) string {
 	if value == "" {
