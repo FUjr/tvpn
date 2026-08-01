@@ -5,6 +5,8 @@ bin/
 coverage/
 web/dist/
 web/node_modules/
+web/*.tsbuildinfo
+web/vite.config.js
+web/vite.config.d.ts
 *.log
 .DS_Store
-
