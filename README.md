@@ -1,0 +1,24 @@
+# Tvpn
+
+Tvpn 是一个有服务端的 WebVPN。用户登录后在浏览器式地址栏中输入目标网址，页面通过隔离的代理 Origin 加载；访问策略可按本地用户和 LDAP 组配置。
+
+项目当前处于首版实现阶段，产品名称暂定为 Tvpn。
+
+## 开发环境
+
+要求 Docker 及 Docker Compose：
+
+```sh
+./scripts/dev.sh
+```
+
+本地管理地址为 `http://app.localhost:8080`，代理页面使用 `*.proxy.localhost:8080`。
+
+## 验证
+
+```sh
+./scripts/test.sh
+```
+
+部署、环境变量、安全边界和浏览器兼容性分别见 `docs/`。本项目采用 AGPL-3.0 许可证。
+

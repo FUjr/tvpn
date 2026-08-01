@@ -1,0 +1,12 @@
+:root {
+  color: #17201b;
+  background: #f4f6f5;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-synthesis: none;
+  letter-spacing: 0;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { width: 100%; min-height: 100%; margin: 0; }
+.boot { display: grid; min-height: 100vh; place-items: center; font-size: 28px; font-weight: 700; }
+

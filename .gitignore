@@ -1,0 +1,10 @@
+.env
+.env.local
+secrets/
+bin/
+coverage/
+web/dist/
+web/node_modules/
+*.log
+.DS_Store
+

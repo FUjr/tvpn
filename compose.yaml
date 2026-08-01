@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: tvpn
+      POSTGRES_USER: tvpn
+      POSTGRES_PASSWORD: tvpn-development-only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tvpn -d tvpn"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - tvpn-postgres:/var/lib/postgresql/data
+
+  app:
+    build: .
+    environment:
+      TVPN_DATABASE_URL: postgres://tvpn:tvpn-development-only@postgres:5432/tvpn?sslmode=disable
+      TVPN_APP_ORIGIN: http://app.localhost:8080
+      TVPN_PROXY_BASE_DOMAIN: proxy.localhost:8080
+      TVPN_ENV: development
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/tvpn", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  tvpn-postgres:
+
