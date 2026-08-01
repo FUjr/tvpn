@@ -3,10 +3,13 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -16,6 +19,7 @@ import (
 	"github.com/FUjr/tvpn/internal/database"
 	"github.com/FUjr/tvpn/internal/ldapauth"
 	proxyservice "github.com/FUjr/tvpn/internal/proxy"
+	webassets "github.com/FUjr/tvpn/web"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -90,10 +94,39 @@ func (s *Server) routes() http.Handler {
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
-	r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+			return
+		}
+		serveWeb(w, r)
 	})
 	return r
+}
+
+func serveWeb(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
+	if name == "." || name == "" {
+		name = "index.html"
+	}
+	data, err := fs.ReadFile(webassets.Dist, "dist/"+name)
+	if err != nil {
+		name = "index.html"
+		data, err = fs.ReadFile(webassets.Dist, "dist/index.html")
+	}
+	if err != nil {
+		http.Error(w, "web interface unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if contentType := mime.TypeByExtension(path.Ext(name)); contentType != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
+	if strings.HasPrefix(name, "assets/") {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		w.Header().Set("Cache-Control", "no-store")
+	}
+	_, _ = w.Write(data)
 }
 
 func (s *Server) Handler() http.Handler {

@@ -14,15 +14,17 @@ HTTP 代理已实现独立 Origin 路由、一次性 bootstrap、请求级策略
 
 注入运行时会 Hook URL 与导航行为；Fetch、XHR、SSE 和 Beacon 强制走页面级复用 WebSocket。页面创建的原生 WebSocket 使用独立隧道，已验证文本/二进制帧和子协议兼容。具体限制见 `docs/compatibility.md`。
 
+Web 界面提供登录、浏览器式地址栏与内嵌代理页面。管理员可在同一界面维护本地用户、用户/LDAP 组策略、LDAP 参数和审计日志；前端请求统一声明在 `web/src/api/client.ts`。
+
 ## 开发环境
 
 要求 Docker 及 Docker Compose：
 
 ```sh
-./scripts/dev.sh
+./scripts/bootstrap-admin.sh
 ```
 
-本地管理地址为 `http://app.localhost:8080`，代理页面使用 `*.proxy.localhost:8080`。
+首次运行用该脚本交互式创建管理员并启动容器；密码只经忽略追踪的 Docker Secret 文件传递，启动后文件会清空。后续直接运行 `./scripts/dev.sh`。本地管理地址为 `http://app.localhost:8080`，代理页面使用 `*.proxy.localhost:8080`。
 
 ## 验证
 

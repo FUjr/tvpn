@@ -7,3 +7,7 @@ if [ ! -f secrets/tvpn_master_key ]; then
   openssl rand 32 > secrets/tvpn_master_key
 fi
 
+if [ ! -f secrets/tvpn_bootstrap_admin_password ]; then
+  umask 077
+  : > secrets/tvpn_bootstrap_admin_password
+fi

@@ -18,7 +18,9 @@
 
 宿主机端口可在运行 Compose 时用 `TVPN_PORT` 覆盖，例如 `TVPN_PORT=18080 docker compose up -d`。
 
-`scripts/dev.sh` 会在首次运行时生成忽略版本控制的 `secrets/tvpn_master_key`。直接运行 Compose 前应先执行 `scripts/init-secrets.sh`；更换此密钥会使现有上游 Cookie 无法解密。
+首次启动运行 `scripts/bootstrap-admin.sh`，交互输入的管理员密码经 `secrets/tvpn_bootstrap_admin_password` 传给容器，账号确认创建后该文件立即清空。脚本和环境变量只在用户表为空时生效，不会覆盖现有管理员。
+
+`scripts/dev.sh` 会在首次运行时生成忽略版本控制的 `secrets/tvpn_master_key` 和空的引导密码 Secret。直接运行 Compose 前应先执行 `scripts/init-secrets.sh`；更换主密钥会使现有上游 Cookie 无法解密。
 
 本地 Compose 通过 `TVPN_CONTAINER_UID`、`TVPN_CONTAINER_GID` 让非 root 容器读取宿主机 0600 Secret，`scripts/dev.sh` 会自动传入当前用户 ID。生产环境应使用容器平台的 Secret 权限映射。
 

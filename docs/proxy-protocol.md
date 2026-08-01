@@ -36,3 +36,4 @@ HTML 解析器在目标脚本之前注入配置和 `/__tvpn/runtime.js`。服务
 
 `document.cookie` 由运行时提供同步可见视图，写入经 `/__tvpn/cookie` 更新加密 Cookie Jar；HttpOnly Cookie 永不返回脚本。
 
+代理页面只接受来自配置中管理界面 Origin 的 `tvpn:command` 消息，用于执行后退、前进和刷新；页面导航通过 `tvpn:navigation` 消息同步到管理界面的地址栏。

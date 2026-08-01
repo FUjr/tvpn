@@ -22,6 +22,8 @@ services:
       TVPN_PROXY_BASE_DOMAIN: proxy.localhost:${TVPN_PORT:-8080}
       TVPN_ENV: development
       TVPN_MASTER_KEY_FILE: /run/secrets/tvpn_master_key
+      TVPN_BOOTSTRAP_ADMIN_USERNAME: ${TVPN_BOOTSTRAP_ADMIN_USERNAME:-}
+      TVPN_BOOTSTRAP_ADMIN_PASSWORD_FILE: /run/secrets/tvpn_bootstrap_admin_password
     ports:
       - "${TVPN_PORT:-8080}:8080"
     depends_on:
@@ -29,6 +31,7 @@ services:
         condition: service_healthy
     secrets:
       - tvpn_master_key
+      - tvpn_bootstrap_admin_password
     healthcheck:
       test: ["CMD", "/tvpn", "healthcheck"]
       interval: 10s
@@ -41,3 +44,5 @@ volumes:
 secrets:
   tvpn_master_key:
     file: ./secrets/tvpn_master_key
+  tvpn_bootstrap_admin_password:
+    file: ./secrets/tvpn_bootstrap_admin_password

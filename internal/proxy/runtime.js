@@ -198,6 +198,12 @@
   history.pushState = (state, unused, url) => updateHistory(nativePushState, state, unused, url);
   history.replaceState = (state, unused, url) => updateHistory(nativeReplaceState, state, unused, url);
   addEventListener('popstate', () => { const target=new URL(location.href);target.protocol=upstreamBase.protocol;target.host=upstreamBase.host;window.parent?.postMessage({type:'tvpn:navigation',url:target.href,title:document.title},config.appOrigin); });
+  addEventListener('message', event => {
+    if (event.origin !== config.appOrigin || event.source !== window.parent || event.data?.type !== 'tvpn:command') return;
+    if (event.data.action === 'back') history.back();
+    if (event.data.action === 'forward') history.forward();
+    if (event.data.action === 'reload') location.reload();
+  });
 
   function rewriteNode(node) {
     if (!(node instanceof Element)) return;
