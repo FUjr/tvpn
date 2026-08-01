@@ -3,6 +3,8 @@ set -eu
 
 ./scripts/init-secrets.sh
 secret=secrets/tvpn_bootstrap_admin_password
+export TVPN_CONTAINER_UID="$(id -u)"
+export TVPN_CONTAINER_GID="$(id -g)"
 cleanup() {
   stty echo 2>/dev/null || true
   : > "$secret"

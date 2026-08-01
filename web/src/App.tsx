@@ -45,6 +45,7 @@ function Login({ onLogin }: { onLogin: (session: Session) => void }) {
   return <main className="login-page"><section className="login-panel">
     <div className="login-brand"><span className="brand-mark">T</span><div><h1>Tvpn</h1><p>安全访问授权的 Web 资源</p></div></div>
     <form onSubmit={submit}><label>用户名<input autoFocus autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} /></label><label>密码<input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} /></label>{error && <p className="form-error">{error}</p>}<button className="primary" disabled={busy || !username || !password}><KeyRound />{busy ? '正在登录' : '登录'}</button></form>
+    <p className="legal">Tvpn 按 AGPL-3.0 提供且不附带担保。<a href="https://github.com/FUjr/tvpn" target="_blank" rel="noreferrer">查看许可证与源代码</a></p>
   </section></main>
 }
 
