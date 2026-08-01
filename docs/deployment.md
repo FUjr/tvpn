@@ -49,7 +49,7 @@ docker compose up -d --no-build
 ./scripts/bootstrap-admin.sh
 ```
 
-引导完成后确认 `secrets/tvpn_bootstrap_admin_password` 已为空文件。不要把开发环境数据库或 `admin/admin` 测试账号迁移到公网。
+该命令使用前面已经拉取的镜像，不会在生产服务器重新构建源码；应用容器会重新创建一次，以便在启动时读取引导账号和密码 Secret。引导完成后确认 `secrets/tvpn_bootstrap_admin_password` 已为空文件。不要把开发环境数据库或 `admin/admin` 测试账号迁移到公网。
 
 ## Nginx
 

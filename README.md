@@ -23,10 +23,10 @@ Web 界面提供登录、浏览器式地址栏与内嵌代理页面。管理员�
 要求 Docker 及 Docker Compose：
 
 ```sh
-./scripts/bootstrap-admin.sh
+./scripts/bootstrap-admin.sh --build
 ```
 
-首次运行用该脚本交互式创建管理员并启动容器；密码只经忽略追踪的 Docker Secret 文件传递，启动后文件会清空。后续直接运行 `./scripts/dev.sh`。本地管理地址为 `http://app.localhost:8080`，代理页面使用 `*.proxy.localhost:8080`。
+本地首次运行用 `--build` 显式构建镜像、交互式创建管理员并启动容器；密码只经忽略追踪的 Docker Secret 文件传递，启动后文件会清空。已经构建或拉取镜像时直接运行 `./scripts/bootstrap-admin.sh`，脚本只重新创建应用容器，不会重新构建镜像。后续开发可运行 `./scripts/dev.sh`。本地管理地址为 `http://app.localhost:8080`，代理页面使用 `*.proxy.localhost:8080`。
 
 从同一局域网的其他设备测试时，为 `TVPN_ACCESS_DOMAIN` 提供可通配解析到服务器的域名。例如服务器地址为 `10.96.210.226`，可使用 `TVPN_ACCESS_DOMAIN=10-96-210-226.sslip.io`，管理入口即为 `http://app.10-96-210-226.sslip.io:8080`。
 

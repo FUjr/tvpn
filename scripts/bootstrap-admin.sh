@@ -1,6 +1,28 @@
 #!/bin/sh
 set -eu
 
+build_flag=--no-build
+case "${1:-}" in
+  "") ;;
+  --build)
+    build_flag=--build
+    shift
+    ;;
+  -h|--help)
+    echo "用法: $0 [--build]"
+    echo "默认使用现有镜像；本地首次启动可用 --build 构建应用镜像。"
+    exit 0
+    ;;
+  *)
+    echo "用法: $0 [--build]" >&2
+    exit 2
+    ;;
+esac
+if [ "$#" -ne 0 ]; then
+  echo "用法: $0 [--build]" >&2
+  exit 2
+fi
+
 ./scripts/init-secrets.sh
 secret=secrets/tvpn_bootstrap_admin_password
 export TVPN_CONTAINER_UID="$(id -u)"
@@ -37,7 +59,7 @@ umask 077
 printf '%s' "$password" > "$secret"
 unset password confirmation
 
-TVPN_BOOTSTRAP_ADMIN_USERNAME="$username" docker compose up -d --build --force-recreate app
+TVPN_BOOTSTRAP_ADMIN_USERNAME="$username" docker compose up -d "$build_flag" --force-recreate app
 
 attempt=0
 until docker compose exec -T postgres psql -U tvpn -d tvpn -Atc "SELECT normalized_username FROM users WHERE is_admin=true" | grep -Fxiqx -- "$username"; do

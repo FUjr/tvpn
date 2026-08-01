@@ -39,7 +39,7 @@ TVPN_PORT=18888 TVPN_ACCESS_DOMAIN=10-96-210-226.sslip.io ./scripts/dev.sh
 
 正式部署应改用自有域名、泛域名 DNS 和 HTTPS，不应依赖公共通配 DNS 服务。
 
-首次启动运行 `scripts/bootstrap-admin.sh`，交互输入的管理员密码经 `secrets/tvpn_bootstrap_admin_password` 传给容器，账号确认创建后该文件立即清空。脚本和环境变量只在用户表为空时生效，不会覆盖现有管理员。
+首次启动运行 `scripts/bootstrap-admin.sh`，交互输入的管理员密码经 `secrets/tvpn_bootstrap_admin_password` 传给容器，账号确认创建后该文件立即清空。脚本默认使用现有镜像，只重新创建应用容器以读取一次性引导配置；本地没有应用镜像时可显式运行 `scripts/bootstrap-admin.sh --build`。脚本和环境变量只在用户表为空时生效，不会覆盖现有管理员。
 
 `scripts/dev.sh` 会在首次运行时生成忽略版本控制的 `secrets/tvpn_master_key` 和空的引导密码 Secret。直接运行 Compose 前应先执行 `scripts/init-secrets.sh`；更换主密钥会使现有上游 Cookie 无法解密。
 
