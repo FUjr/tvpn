@@ -10,6 +10,8 @@ LDAP 登录支持 LDAPS/StartTLS、搜索绑定或 DN 模板，并在登录成�
 
 访问策略支持禁止内网、白名单、黑名单和禁止访问，可同时绑定用户与 LDAP 组。多个策略按交集执行，未分配策略的用户默认禁止访问。管理员 API 可维护用户、LDAP、组、策略和最近 200 条审计事件。
 
+要允许用户访问任意公网 HTTP/HTTPS 网站，可创建一个规则为空的“禁止内网”策略并分配给该用户；云元数据地址和 Tvpn 控制域始终不可作为代理目标。
+
 HTTP 代理已实现独立 Origin 路由、一次性 bootstrap、请求级策略和 DNS 重绑定防护、重定向改写，以及 AES-256-GCM 加密的服务端 Cookie Jar。
 
 注入运行时会 Hook URL 与导航行为；Fetch、XHR、SSE 和 Beacon 强制走页面级复用 WebSocket。页面创建的原生 WebSocket 使用独立隧道，已验证文本/二进制帧和子协议兼容。具体限制见 `docs/compatibility.md`。

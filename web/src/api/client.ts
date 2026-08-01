@@ -11,7 +11,7 @@ export type User = {
 }
 
 export type Session = { user: User; csrf_token: string; expires_at: string }
-export type Rule = { id?: string; kind: 'domain' | 'cidr'; value: string }
+export type Rule = { id?: string; kind: 'exact_host' | 'domain_suffix' | 'cidr' | 'url_prefix'; value: string }
 export type Policy = { id: string; name: string; description: string; mode: PolicyMode; enabled: boolean; rules: Rule[] }
 export type PolicyMode = 'deny_all' | 'deny_intranet' | 'whitelist' | 'blacklist'
 export type PolicyInput = Omit<Policy, 'id'>
