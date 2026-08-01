@@ -4,8 +4,8 @@
 | --- | --- | --- |
 | `TVPN_DATABASE_URL` | 是 | PostgreSQL 连接地址 |
 | `TVPN_LISTEN_ADDRESS` | 否 | 监听地址，默认 `:8080` |
-| `TVPN_APP_ORIGIN` | 是 | 管理界面完整 Origin |
-| `TVPN_PROXY_BASE_DOMAIN` | 是 | 不含通配符的代理基础域名，可包含端口 |
+| `TVPN_APP_ORIGIN` | 是 | 管理界面完整 Origin；管理域可以是代理基础域的直接子域 |
+| `TVPN_PROXY_BASE_DOMAIN` | 是 | 不含协议和通配符的代理基础域名，可包含端口 |
 | `TVPN_ENV` | 否 | `production` 启用生产安全检查 |
 | `TVPN_BOOTSTRAP_ADMIN_USERNAME` | 否 | 仅在用户表为空时创建的本地管理员 |
 | `TVPN_BOOTSTRAP_ADMIN_PASSWORD_FILE` | 条件 | 管理员密码 Secret 文件；配置引导管理员时必需 |
@@ -17,6 +17,15 @@
 Compose 额外接受 `TVPN_ACCESS_DOMAIN`，默认 `localhost`。该值用于组合管理域 `app.<domain>` 和代理通配域 `*.proxy.<domain>`；从其他设备访问时必须让这两个域名都解析到 Tvpn 服务器，不能直接使用 `localhost`。
 
 Compose 会优先读取 `.env` 中的显式配置：`TVPN_APP_ORIGIN`、`TVPN_PROXY_BASE_DOMAIN`、`TVPN_ENV`、`TVPN_BIND_ADDRESS`、`TVPN_PORT`、`TVPN_POSTGRES_PASSWORD` 和可选的 `TVPN_DATABASE_URL`。公网部署应从 `.env.example` 创建 `.env`，其中管理 Origin 使用 HTTPS，代理基础域不包含协议或通配符。
+
+支持让管理域与随机代理域共用一个通配证书和通配 DNS 记录，例如：
+
+```dotenv
+TVPN_APP_ORIGIN=https://vpn.proxy.example.com
+TVPN_PROXY_BASE_DOMAIN=proxy.example.com
+```
+
+此时管理入口精确匹配 `vpn.proxy.example.com`，`bootstrap.proxy.example.com` 和随机路由域仍由代理处理。不要将两项配置成完全相同的主机名。
 
 真实部署不得使用 Compose 示例密码。密码、LDAP 绑定凭据和主密钥将通过挂载文件或 Docker Secret 注入。
 

@@ -11,6 +11,15 @@
 
 证书必须同时覆盖 `vpn.example.com` 和 `*.proxy.vpn.example.com`。通配证书需要 DNS-01 验证，HTTP-01 不能签发通配证书，参见 [Let's Encrypt Challenge Types](https://letsencrypt.org/docs/challenge-types/)。
 
+也可以采用单个代理基础域下的部署方式：
+
+```dotenv
+TVPN_APP_ORIGIN=https://vpn.proxy.example.com
+TVPN_PROXY_BASE_DOMAIN=proxy.example.com
+```
+
+只需将 `*.proxy.example.com` 解析到 Tvpn 公网地址，并配置覆盖 `*.proxy.example.com` 的证书。该通配域同时覆盖管理入口 `vpn.proxy.example.com`、引导入口 `bootstrap.proxy.example.com` 和随机代理路由。Nginx 的 `server_name` 应相应改为 `vpn.proxy.example.com *.proxy.example.com`。
+
 ## Compose
 
 ```sh

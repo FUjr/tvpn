@@ -33,6 +33,14 @@ type Server struct {
 	proxyHTTP *proxyservice.Service
 }
 
+type requestHostKind uint8
+
+const (
+	unknownHost requestHostKind = iota
+	appHostKind
+	proxyHostKind
+)
+
 func New(cfg config.Config) (*Server, error) {
 	db, err := database.Open(cfg.DatabaseURL)
 	if err != nil {
@@ -131,23 +139,22 @@ func serveWeb(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) Handler() http.Handler {
 	app, _ := url.Parse(s.cfg.AppOrigin)
-	appHost := strings.ToLower(app.Hostname())
-	proxyHost := strings.ToLower(serverHostname(s.cfg.ProxyBaseDomain))
+	configuredAppHost := strings.ToLower(app.Hostname())
+	configuredProxyHost := strings.ToLower(serverHostname(s.cfg.ProxyBaseDomain))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/health/") {
 			s.router.ServeHTTP(w, r)
 			return
 		}
 		host := strings.ToLower(serverHostname(r.Host))
-		if host == proxyHost || strings.HasSuffix(host, "."+proxyHost) {
+		switch classifyRequestHost(host, configuredAppHost, configuredProxyHost) {
+		case appHostKind:
+			s.router.ServeHTTP(w, r)
+		case proxyHostKind:
 			s.proxyHTTP.ServeHTTP(w, r)
-			return
-		}
-		if host != appHost {
+		default:
 			http.Error(w, "misdirected request", http.StatusMisdirectedRequest)
-			return
 		}
-		s.router.ServeHTTP(w, r)
 	})
 }
 func (s *Server) Close() { s.db.Close() }
@@ -163,4 +170,18 @@ func serverHostname(value string) string {
 		return host
 	}
 	return strings.TrimSuffix(value, ".")
+}
+
+func isProxyHost(host, proxyHost string) bool {
+	return host == proxyHost || strings.HasSuffix(host, "."+proxyHost)
+}
+
+func classifyRequestHost(host, configuredAppHost, configuredProxyHost string) requestHostKind {
+	if host == configuredAppHost {
+		return appHostKind
+	}
+	if isProxyHost(host, configuredProxyHost) {
+		return proxyHostKind
+	}
+	return unknownHost
 }
