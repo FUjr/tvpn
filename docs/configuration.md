@@ -16,6 +16,8 @@
 
 Compose 额外接受 `TVPN_ACCESS_DOMAIN`，默认 `localhost`。该值用于组合管理域 `app.<domain>` 和代理通配域 `*.proxy.<domain>`；从其他设备访问时必须让这两个域名都解析到 Tvpn 服务器，不能直接使用 `localhost`。
 
+Compose 会优先读取 `.env` 中的显式配置：`TVPN_APP_ORIGIN`、`TVPN_PROXY_BASE_DOMAIN`、`TVPN_ENV`、`TVPN_BIND_ADDRESS`、`TVPN_PORT`、`TVPN_POSTGRES_PASSWORD` 和可选的 `TVPN_DATABASE_URL`。公网部署应从 `.env.example` 创建 `.env`，其中管理 Origin 使用 HTTPS，代理基础域不包含协议或通配符。
+
 真实部署不得使用 Compose 示例密码。密码、LDAP 绑定凭据和主密钥将通过挂载文件或 Docker Secret 注入。
 
 宿主机端口可在运行 Compose 时用 `TVPN_PORT` 覆盖，例如 `TVPN_PORT=18080 docker compose up -d`。

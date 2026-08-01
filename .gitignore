@@ -1,5 +1,6 @@
 .env
 .env.local
+!.env.example
 secrets/
 bin/
 coverage/

@@ -30,6 +30,8 @@ Web 界面提供登录、浏览器式地址栏与内嵌代理页面。管理员�
 
 从同一局域网的其他设备测试时，为 `TVPN_ACCESS_DOMAIN` 提供可通配解析到服务器的域名。例如服务器地址为 `10.96.210.226`，可使用 `TVPN_ACCESS_DOMAIN=10-96-210-226.sslip.io`，管理入口即为 `http://app.10-96-210-226.sslip.io:8080`。
 
+公网部署可复制 `.env.example`，通过 `.env` 传入 HTTPS 管理域、代理通配域、监听地址和数据库密码；Docker Compose 与 Nginx 完整示例见 `docs/deployment.md`。
+
 ## 验证
 
 ```sh
