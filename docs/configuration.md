@@ -14,9 +14,19 @@
 | `TVPN_LDAP_ALLOW_INSECURE` | 否 | 仅开发环境允许明文 LDAP，生产环境拒绝启动 |
 | `TVPN_MASTER_KEY_FILE` | 生产必需 | 恰好 32 字节的代理 Cookie 加密主密钥文件 |
 
+Compose 额外接受 `TVPN_ACCESS_DOMAIN`，默认 `localhost`。该值用于组合管理域 `app.<domain>` 和代理通配域 `*.proxy.<domain>`；从其他设备访问时必须让这两个域名都解析到 Tvpn 服务器，不能直接使用 `localhost`。
+
 真实部署不得使用 Compose 示例密码。密码、LDAP 绑定凭据和主密钥将通过挂载文件或 Docker Secret 注入。
 
 宿主机端口可在运行 Compose 时用 `TVPN_PORT` 覆盖，例如 `TVPN_PORT=18080 docker compose up -d`。
+
+局域网临时测试可使用能按地址自动解析的通配 DNS，例如：
+
+```sh
+TVPN_PORT=18888 TVPN_ACCESS_DOMAIN=10-96-210-226.sslip.io ./scripts/dev.sh
+```
+
+正式部署应改用自有域名、泛域名 DNS 和 HTTPS，不应依赖公共通配 DNS 服务。
 
 首次启动运行 `scripts/bootstrap-admin.sh`，交互输入的管理员密码经 `secrets/tvpn_bootstrap_admin_password` 传给容器，账号确认创建后该文件立即清空。脚本和环境变量只在用户表为空时生效，不会覆盖现有管理员。
 
