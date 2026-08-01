@@ -3,10 +3,12 @@ package auth
 import (
 	"context"
 	"crypto/subtle"
-	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
+
+	"github.com/FUjr/tvpn/internal/httpapi"
 )
 
 type contextKey int
@@ -33,23 +35,23 @@ func (h *HTTP) Login(w http.ResponseWriter, r *http.Request) {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
-	if json.NewDecoder(r.Body).Decode(&input) != nil {
-		problem(w, http.StatusBadRequest, "invalid_request", "请求格式无效")
+	if !httpapi.DecodeJSON(w, r, &input) {
 		return
 	}
 	user, err := h.authenticate(r.Context(), input.Username, input.Password)
 	if err != nil {
-		problem(w, http.StatusUnauthorized, "invalid_credentials", "用户名或密码错误")
+		h.store.Audit(r.Context(), nil, "auth.login", "failure", strings.ToLower(strings.TrimSpace(input.Username)))
+		httpapi.Problem(w, http.StatusUnauthorized, "invalid_credentials", "用户名或密码错误")
 		return
 	}
 	session, err := h.store.CreateSession(r.Context(), user, h.ttl)
 	if err != nil {
-		problem(w, http.StatusInternalServerError, "internal_error", "无法创建会话")
+		httpapi.Problem(w, http.StatusInternalServerError, "internal_error", "无法创建会话")
 		return
 	}
 	h.setCookie(w, session.Token, session.ExpiresAt)
-	writeJSON(w, http.StatusOK, map[string]any{"user": session.User, "csrf_token": session.CSRFToken, "expires_at": session.ExpiresAt})
+	h.store.Audit(r.Context(), &user.ID, "auth.login", "success", user.ID.String())
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"user": session.User, "csrf_token": session.CSRFToken, "expires_at": session.ExpiresAt})
 }
 
 func (h *HTTP) authenticate(ctx context.Context, username, password string) (User, error) {
@@ -76,13 +78,16 @@ func (h *HTTP) authenticate(ctx context.Context, username, password string) (Use
 func (h *HTTP) Session(w http.ResponseWriter, r *http.Request) {
 	session, ok := SessionFromContext(r.Context())
 	if !ok {
-		problem(w, http.StatusUnauthorized, "unauthorized", "需要登录")
+		httpapi.Problem(w, http.StatusUnauthorized, "unauthorized", "需要登录")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"user": session.User, "csrf_token": session.CSRFToken, "expires_at": session.ExpiresAt})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"user": session.User, "csrf_token": session.CSRFToken, "expires_at": session.ExpiresAt})
 }
 
 func (h *HTTP) Logout(w http.ResponseWriter, r *http.Request) {
+	if session, ok := SessionFromContext(r.Context()); ok {
+		h.store.Audit(r.Context(), &session.User.ID, "auth.logout", "success", session.User.ID.String())
+	}
 	if cookie, err := r.Cookie(h.cookieName()); err == nil {
 		_ = h.store.DeleteSession(r.Context(), cookie.Value)
 	}
@@ -94,12 +99,12 @@ func (h *HTTP) Authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(h.cookieName())
 		if err != nil {
-			problem(w, http.StatusUnauthorized, "unauthorized", "需要登录")
+			httpapi.Problem(w, http.StatusUnauthorized, "unauthorized", "需要登录")
 			return
 		}
 		session, err := h.store.SessionByToken(r.Context(), cookie.Value)
 		if err != nil {
-			problem(w, http.StatusUnauthorized, "unauthorized", "会话已失效")
+			httpapi.Problem(w, http.StatusUnauthorized, "unauthorized", "会话已失效")
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), sessionContextKey, session)))
@@ -108,10 +113,14 @@ func (h *HTTP) Authenticate(next http.Handler) http.Handler {
 
 func (h *HTTP) RequireCSRF(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
+		}
 		session, ok := SessionFromContext(r.Context())
 		token := r.Header.Get("X-CSRF-Token")
 		if !ok || len(token) != len(session.CSRFToken) || subtle.ConstantTimeCompare([]byte(token), []byte(session.CSRFToken)) != 1 {
-			problem(w, http.StatusForbidden, "csrf_failed", "CSRF 校验失败")
+			httpapi.Problem(w, http.StatusForbidden, "csrf_failed", "CSRF 校验失败")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -133,14 +142,13 @@ func (h *HTTP) setCookie(w http.ResponseWriter, value string, expires time.Time)
 	http.SetCookie(w, &http.Cookie{Name: h.cookieName(), Value: value, Path: "/", Expires: expires, MaxAge: int(time.Until(expires).Seconds()), HttpOnly: true, Secure: h.secure, SameSite: http.SameSiteLaxMode})
 }
 
-func writeJSON(w http.ResponseWriter, status int, value any) {
-	if w.Header().Get("Content-Type") == "" {
-		w.Header().Set("Content-Type", "application/json")
-	}
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
-}
-func problem(w http.ResponseWriter, status int, code, detail string) {
-	w.Header().Set("Content-Type", "application/problem+json")
-	writeJSON(w, status, map[string]any{"type": "https://tvpn.invalid/problems/" + code, "title": http.StatusText(status), "status": status, "detail": detail})
+func (h *HTTP) RequireAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		session, ok := SessionFromContext(r.Context())
+		if !ok || !session.User.IsAdmin {
+			httpapi.Problem(w, http.StatusForbidden, "admin_required", "需要管理员权限")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }

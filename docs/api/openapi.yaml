@@ -34,6 +34,99 @@ paths:
         - $ref: '#/components/parameters/CSRF'
       responses:
         '204': { description: Session removed }
+  /admin/users:
+    get:
+      operationId: listUsers
+      responses:
+        '200': { description: Users with directly assigned policy IDs }
+    post:
+      operationId: createLocalUser
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      responses:
+        '201': { description: Local user created }
+  /admin/users/{id}:
+    patch:
+      operationId: updateUser
+      parameters:
+        - { $ref: '#/components/parameters/ID' }
+        - { $ref: '#/components/parameters/CSRF' }
+      responses:
+        '204': { description: User updated }
+  /admin/users/{id}/password:
+    post:
+      operationId: resetLocalPassword
+      parameters:
+        - { $ref: '#/components/parameters/ID' }
+        - { $ref: '#/components/parameters/CSRF' }
+      responses:
+        '204': { description: Password changed and existing sessions removed }
+  /admin/users/{id}/policies:
+    put:
+      operationId: setUserPolicies
+      parameters:
+        - { $ref: '#/components/parameters/ID' }
+        - { $ref: '#/components/parameters/CSRF' }
+      responses:
+        '204': { description: Assignments replaced }
+  /admin/policies:
+    get:
+      operationId: listPolicies
+      responses:
+        '200': { description: Policies and rules }
+    post:
+      operationId: createPolicy
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      responses:
+        '201': { description: Policy created }
+  /admin/policies/{id}:
+    put:
+      operationId: updatePolicy
+      parameters:
+        - { $ref: '#/components/parameters/ID' }
+        - { $ref: '#/components/parameters/CSRF' }
+      responses:
+        '204': { description: Policy and rules replaced }
+    delete:
+      operationId: deletePolicy
+      parameters:
+        - { $ref: '#/components/parameters/ID' }
+        - { $ref: '#/components/parameters/CSRF' }
+      responses:
+        '204': { description: Policy deleted }
+  /admin/ldap:
+    get:
+      operationId: getLDAPSettings
+      responses:
+        '200': { description: Non-secret LDAP settings }
+    put:
+      operationId: updateLDAPSettings
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      responses:
+        '204': { description: LDAP settings updated }
+  /admin/ldap/test:
+    post:
+      operationId: testLDAP
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      responses:
+        '204': { description: LDAP connection and service bind succeeded }
+  /admin/ldap/groups:
+    get:
+      operationId: listLDAPGroups
+      responses:
+        '200': { description: Known LDAP groups and policy IDs }
+  /admin/ldap/groups/{id}/policies:
+    put:
+      operationId: setLDAPGroupPolicies
+      parameters:
+        - { $ref: '#/components/parameters/ID' }
+        - { $ref: '#/components/parameters/CSRF' }
+      responses:
+        '204': { description: Assignments replaced }
+  /admin/audit:
+    get:
+      operationId: listAuditEvents
+      responses:
+        '200': { description: Most recent 200 audit events }
 components:
   parameters:
     CSRF:
@@ -41,6 +134,11 @@ components:
       name: X-CSRF-Token
       required: true
       schema: { type: string }
+    ID:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
   responses:
     Problem:
       description: RFC 9457 compatible error

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FUjr/tvpn/internal/admin"
 	"github.com/FUjr/tvpn/internal/auth"
 	"github.com/FUjr/tvpn/internal/config"
 	"github.com/FUjr/tvpn/internal/database"
@@ -17,10 +18,11 @@ import (
 )
 
 type Server struct {
-	cfg      config.Config
-	db       *pgxpool.Pool
-	router   http.Handler
-	authHTTP *auth.HTTP
+	cfg       config.Config
+	db        *pgxpool.Pool
+	router    http.Handler
+	authHTTP  *auth.HTTP
+	adminHTTP *admin.HTTP
 }
 
 func New(cfg config.Config) (*Server, error) {
@@ -41,7 +43,7 @@ func New(cfg config.Config) (*Server, error) {
 		}
 	}
 	ldapService := ldapauth.New(db, cfg.LDAPBindPasswordFile, cfg.LDAPCAFile, cfg.Development && cfg.LDAPAllowInsecure)
-	s := &Server{cfg: cfg, db: db, authHTTP: auth.NewHTTP(store, cfg.SessionTTL, !cfg.Development, ldapService)}
+	s := &Server{cfg: cfg, db: db, authHTTP: auth.NewHTTP(store, cfg.SessionTTL, !cfg.Development, ldapService), adminHTTP: admin.NewHTTP(db, store, ldapService)}
 	s.router = s.routes()
 	return s, nil
 }
@@ -55,6 +57,12 @@ func (s *Server) routes() http.Handler {
 			r.Get("/session", s.authHTTP.Session)
 			r.With(s.authHTTP.RequireCSRF).Post("/logout", s.authHTTP.Logout)
 		})
+	})
+	r.Route("/api/v1/admin", func(r chi.Router) {
+		r.Use(s.authHTTP.Authenticate)
+		r.Use(s.authHTTP.RequireAdmin)
+		r.Use(s.authHTTP.RequireCSRF)
+		r.Mount("/", s.adminHTTP.Routes())
 	})
 	r.Get("/health/live", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

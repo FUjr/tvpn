@@ -17,5 +17,5 @@
 - 权限模式包括禁止内网、白名单、黑名单和禁止访问。
 - 优先 Hook 浏览器 URL 与导航行为，其次监控动态 URL，最后由服务端重写可安全识别的 URL。
 - 可拦截的 Fetch、XHR、EventSource 和 Beacon 请求强制通过复用 WebSocket；导航、早期资源和上传下载保留 HTTP 通道。
+- 被代理页面创建的 `WebSocket` 必须由运行时 Hook 并经服务端建立 `ws/wss` 隧道，兼容子协议、文本/二进制帧、关闭码、Cookie 与 Origin。
 - 尽量兼容公网网站，但不承诺 WebRTC、WebTransport、DRM、浏览器扩展或任意直接 `window.location` 赋值。
-

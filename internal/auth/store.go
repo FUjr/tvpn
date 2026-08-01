@@ -165,6 +165,10 @@ func (s *Store) DeleteSession(ctx context.Context, token string) error {
 	return err
 }
 
+func (s *Store) Audit(ctx context.Context, userID *uuid.UUID, eventType, outcome, target string) {
+	_, _ = s.db.Exec(ctx, `INSERT INTO audit_events(actor_user_id,event_type,outcome,target) VALUES ($1,$2,$3,$4)`, userID, eventType, outcome, target)
+}
+
 func randomToken() (string, []byte, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {

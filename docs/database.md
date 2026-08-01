@@ -14,3 +14,9 @@
 - `ldap_settings`：单行保存非敏感连接、搜索、属性和组映射设置；绑定密码与 CA 不进入数据库。
 - `ldap_groups`：按外部 DN 唯一保存登录过程中发现的组。
 - `user_ldap_groups`：每次 LDAP 登录成功后在事务中全量替换用户的当前组成员关系。
+
+## 003 策略与审计
+
+- `policies`、`policy_rules`：保存四种策略及精确主机、域名后缀、CIDR、URL 前缀规则。
+- `user_policies`、`ldap_group_policies`：分别绑定用户和 LDAP 组；请求必须通过全部有效策略。
+- `audit_events`：保存认证、配置、顶层导航和拒绝事件，不保存请求正文、Cookie 或 URL 查询参数。

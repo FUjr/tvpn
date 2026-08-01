@@ -125,6 +125,61 @@ func (s *Service) Settings(ctx context.Context) (Settings, error) {
 	return value, err
 }
 
+func (s *Service) BindPasswordConfigured() bool { return s.bindPasswordFile != "" }
+
+func (s *Service) UpdateSettings(ctx context.Context, value Settings) error {
+	value.URL = strings.TrimSpace(value.URL)
+	if value.Mode != "search_bind" && value.Mode != "dn_template" {
+		return errors.New("LDAP mode must be search_bind or dn_template")
+	}
+	if value.GroupMode != "member_of" && value.GroupMode != "search" {
+		return errors.New("LDAP group mode must be member_of or search")
+	}
+	if value.Enabled {
+		parsed, err := url.Parse(value.URL)
+		if err != nil || (parsed.Scheme != "ldap" && parsed.Scheme != "ldaps") || parsed.Hostname() == "" {
+			return errors.New("LDAP URL must contain an ldap or ldaps host")
+		}
+		if value.Mode == "search_bind" && (value.BindDN == "" || !strings.Contains(value.UserFilter, "{{username}}")) {
+			return errors.New("search_bind requires bind DN and a user filter containing {{username}}")
+		}
+		if value.Mode == "dn_template" && !strings.Contains(value.UserDNTemplate, "{{username}}") {
+			return errors.New("DN template must contain {{username}}")
+		}
+		if value.GroupMode == "search" && (!strings.Contains(value.GroupFilter, "{{user_dn}}") || value.GroupBaseDN == "") {
+			return errors.New("group search requires a base DN and filter containing {{user_dn}}")
+		}
+	}
+	_, err := s.db.Exec(ctx, `UPDATE ldap_settings SET enabled=$1,mode=$2,url=$3,start_tls=$4,base_dn=$5,bind_dn=$6,user_filter=$7,
+		user_dn_template=$8,username_attribute=$9,display_name_attribute=$10,email_attribute=$11,group_mode=$12,
+		group_base_dn=$13,group_filter=$14,group_name_attribute=$15,updated_at=now() WHERE singleton=true`, value.Enabled, value.Mode, value.URL, value.StartTLS,
+		value.BaseDN, value.BindDN, value.UserFilter, value.UserDNTemplate, value.UsernameAttribute, value.DisplayNameAttribute, value.EmailAttribute,
+		value.GroupMode, value.GroupBaseDN, value.GroupFilter, value.GroupNameAttribute)
+	return err
+}
+
+func (s *Service) Test(ctx context.Context) error {
+	settings, err := s.Settings(ctx)
+	if err != nil {
+		return err
+	}
+	conn, err := s.dial(settings)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if settings.BindDN != "" {
+		password, err := s.bindPassword()
+		if err != nil {
+			return err
+		}
+		if err := conn.Bind(settings.BindDN, password); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Service) dial(settings Settings) (*ldap.Conn, error) {
 	parsed, err := url.Parse(settings.URL)
 	if err != nil || (parsed.Scheme != "ldap" && parsed.Scheme != "ldaps") {
