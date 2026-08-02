@@ -8,10 +8,12 @@
 
 - 用户入口可省略协议并自动补全为 `http://`；进入策略与代理层前只接受无用户信息的绝对 HTTP/HTTPS URL，显式 `https://` 保持不变。
 - URL 主机经过 IDNA 规范化，端口必须在 1-65535。
-- 每次请求解析全部 A/AAAA 地址，策略通过后固定其中一个地址拨号，TLS ServerName 仍使用原始主机。
+- 每次请求解析全部 A/AAAA 地址，策略通过后固定其中一个地址拨号，TLS ServerName 与 HTTP Host 仍使用原始主机。HTTP 上游代理通过 CONNECT 连接固定 IP，SOCKS5 也只接收固定 IP，不能在代理端重新解析目标域名。
 - 云元数据地址、管理域和代理域无条件拒绝；其余私网访问由用户与 LDAP 组策略决定。
 - 重定向、Cookie、后续资源和 WebSocket 不能绕过相同校验。
 
 ## Cookie 与日志
 
-上游 Cookie 值使用 AES-256-GCM 和上下文关联数据加密。Domain Cookie 必须属于响应主机且不能是公共后缀。审计 URL 删除查询参数和 Fragment，不记录正文、认证头或 Cookie。
+上游 Cookie 值和上游代理密码使用 AES-256-GCM 及各自关联数据加密。代理密码不通过读取 API 返回，更新时留空会保留原值。Domain Cookie 必须属于响应主机且不能是公共后缀。审计 URL 删除查询参数和 Fragment，不记录正文、认证头、代理密码或 Cookie。
+
+代理授权在每次连接时重新确认。代理被停用或用户/LDAP 组授权被撤销后，已有浏览上下文不能继续通过它建立连接；切换代理会关闭旧上下文，避免 Cookie Jar 和出口在同一上下文内混用。

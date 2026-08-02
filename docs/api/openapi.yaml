@@ -127,12 +127,58 @@ paths:
       operationId: listAuditEvents
       responses:
         '200': { description: Most recent 200 audit events }
+  /admin/upstream-proxies:
+    get:
+      operationId: listUpstreamProxies
+      responses:
+        '200': { description: Upstream proxies without passwords, including direct user and LDAP group assignment IDs }
+    post:
+      operationId: createUpstreamProxy
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      responses:
+        '201': { description: HTTP or SOCKS5 upstream proxy created }
+  /admin/upstream-proxies/{id}:
+    put:
+      operationId: updateUpstreamProxy
+      parameters:
+        - { $ref: '#/components/parameters/ID' }
+        - { $ref: '#/components/parameters/CSRF' }
+      responses:
+        '204': { description: Upstream proxy updated; an empty password retains the encrypted value }
+    delete:
+      operationId: deleteUpstreamProxy
+      parameters:
+        - { $ref: '#/components/parameters/ID' }
+        - { $ref: '#/components/parameters/CSRF' }
+      responses:
+        '204': { description: Upstream proxy and contexts using it deleted }
+  /admin/upstream-proxies/{id}/users:
+    put:
+      operationId: setUpstreamProxyUsers
+      parameters:
+        - { $ref: '#/components/parameters/ID' }
+        - { $ref: '#/components/parameters/CSRF' }
+      responses:
+        '204': { description: Direct user assignments replaced }
+  /admin/upstream-proxies/{id}/groups:
+    put:
+      operationId: setUpstreamProxyLDAPGroups
+      parameters:
+        - { $ref: '#/components/parameters/ID' }
+        - { $ref: '#/components/parameters/CSRF' }
+      responses:
+        '204': { description: LDAP group assignments replaced }
+  /proxy/upstreams/:
+    get:
+      operationId: listAvailableUpstreamProxies
+      responses:
+        '200': { description: Enabled upstream proxies granted directly or through current LDAP groups; direct mode is implicit }
   /proxy/contexts/:
     post:
       operationId: createProxyContext
       parameters: [{ $ref: '#/components/parameters/CSRF' }]
       responses:
-        '201': { description: Context, one-time bootstrap URL and direct route URL }
+        '201': { description: Context with the selected optional upstream_proxy_id, one-time bootstrap URL and route URL }
         '403': { $ref: '#/components/responses/Problem' }
   /proxy/contexts/{id}:
     get:

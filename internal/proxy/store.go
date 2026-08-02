@@ -17,32 +17,34 @@ import (
 )
 
 type Context struct {
-	ID           uuid.UUID `json:"id"`
-	CurrentURL   string    `json:"current_url"`
-	CreatedAt    time.Time `json:"created_at"`
-	LastActiveAt time.Time `json:"last_active_at"`
+	ID              uuid.UUID  `json:"id"`
+	CurrentURL      string     `json:"current_url"`
+	UpstreamProxyID *uuid.UUID `json:"upstream_proxy_id"`
+	CreatedAt       time.Time  `json:"created_at"`
+	LastActiveAt    time.Time  `json:"last_active_at"`
 }
 type Route struct {
-	ID         uuid.UUID
-	ContextID  uuid.UUID
-	UserID     uuid.UUID
-	Scheme     string
-	Host       string
-	Port       int
-	CurrentURL string
+	ID              uuid.UUID
+	ContextID       uuid.UUID
+	UserID          uuid.UUID
+	Scheme          string
+	Host            string
+	Port            int
+	CurrentURL      string
+	UpstreamProxyID *uuid.UUID
 }
 type Store struct{ db *pgxpool.Pool }
 
 func NewStore(db *pgxpool.Pool) *Store { return &Store{db: db} }
 
-func (s *Store) CreateContext(ctx context.Context, userID uuid.UUID, target *url.URL) (Context, Route, string, error) {
+func (s *Store) CreateContext(ctx context.Context, userID uuid.UUID, target *url.URL, upstreamProxyID *uuid.UUID) (Context, Route, string, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return Context{}, Route{}, "", err
 	}
 	defer tx.Rollback(ctx)
-	contextValue := Context{ID: uuid.New(), CurrentURL: target.String(), CreatedAt: time.Now(), LastActiveAt: time.Now()}
-	if _, err = tx.Exec(ctx, `INSERT INTO proxy_contexts(id,user_id,current_url)VALUES($1,$2,$3)`, contextValue.ID, userID, target.String()); err != nil {
+	contextValue := Context{ID: uuid.New(), CurrentURL: target.String(), UpstreamProxyID: upstreamProxyID, CreatedAt: time.Now(), LastActiveAt: time.Now()}
+	if _, err = tx.Exec(ctx, `INSERT INTO proxy_contexts(id,user_id,current_url,upstream_proxy_id)VALUES($1,$2,$3,$4)`, contextValue.ID, userID, target.String(), upstreamProxyID); err != nil {
 		return Context{}, Route{}, "", err
 	}
 	route, err := createRoute(ctx, tx, contextValue.ID, userID, target)
@@ -119,7 +121,7 @@ func (s *Store) RouteByLabel(ctx context.Context, label string) (Route, error) {
 		return Route{}, err
 	}
 	var route Route
-	err = s.db.QueryRow(ctx, `SELECT r.id,r.context_id,c.user_id,r.upstream_scheme,r.upstream_host,r.upstream_port,c.current_url FROM proxy_routes r JOIN proxy_contexts c ON c.id=r.context_id WHERE r.id=$1 AND c.closed_at IS NULL`, id).Scan(&route.ID, &route.ContextID, &route.UserID, &route.Scheme, &route.Host, &route.Port, &route.CurrentURL)
+	err = s.db.QueryRow(ctx, `SELECT r.id,r.context_id,c.user_id,r.upstream_scheme,r.upstream_host,r.upstream_port,c.current_url,c.upstream_proxy_id FROM proxy_routes r JOIN proxy_contexts c ON c.id=r.context_id WHERE r.id=$1 AND c.closed_at IS NULL`, id).Scan(&route.ID, &route.ContextID, &route.UserID, &route.Scheme, &route.Host, &route.Port, &route.CurrentURL, &route.UpstreamProxyID)
 	return route, err
 }
 
@@ -156,7 +158,7 @@ func (s *Store) AuthenticateProxy(ctx context.Context, token string) (uuid.UUID,
 }
 func (s *Store) Context(ctx context.Context, id, userID uuid.UUID) (Context, error) {
 	var value Context
-	err := s.db.QueryRow(ctx, `SELECT id,current_url,created_at,last_active_at FROM proxy_contexts WHERE id=$1 AND user_id=$2 AND closed_at IS NULL`, id, userID).Scan(&value.ID, &value.CurrentURL, &value.CreatedAt, &value.LastActiveAt)
+	err := s.db.QueryRow(ctx, `SELECT id,current_url,upstream_proxy_id,created_at,last_active_at FROM proxy_contexts WHERE id=$1 AND user_id=$2 AND closed_at IS NULL`, id, userID).Scan(&value.ID, &value.CurrentURL, &value.UpstreamProxyID, &value.CreatedAt, &value.LastActiveAt)
 	return value, err
 }
 func (s *Store) CloseContext(ctx context.Context, id, userID uuid.UUID) error {

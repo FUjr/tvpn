@@ -12,6 +12,7 @@ import (
 	"github.com/FUjr/tvpn/internal/httpapi"
 	"github.com/FUjr/tvpn/internal/ldapauth"
 	"github.com/FUjr/tvpn/internal/policy"
+	proxyservice "github.com/FUjr/tvpn/internal/proxy"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,10 +22,11 @@ type HTTP struct {
 	db        *pgxpool.Pool
 	authStore *auth.Store
 	ldap      *ldapauth.Service
+	upstreams *proxyservice.UpstreamStore
 }
 
-func NewHTTP(db *pgxpool.Pool, authStore *auth.Store, ldap *ldapauth.Service) *HTTP {
-	return &HTTP{db: db, authStore: authStore, ldap: ldap}
+func NewHTTP(db *pgxpool.Pool, authStore *auth.Store, ldap *ldapauth.Service, upstreams *proxyservice.UpstreamStore) *HTTP {
+	return &HTTP{db: db, authStore: authStore, ldap: ldap, upstreams: upstreams}
 }
 
 func (h *HTTP) Routes() http.Handler {
@@ -43,6 +45,12 @@ func (h *HTTP) Routes() http.Handler {
 	r.Post("/ldap/test", h.testLDAP)
 	r.Get("/ldap/groups", h.listGroups)
 	r.Put("/ldap/groups/{id}/policies", h.setGroupPolicies)
+	r.Get("/upstream-proxies", h.listUpstreamProxies)
+	r.Post("/upstream-proxies", h.createUpstreamProxy)
+	r.Put("/upstream-proxies/{id}", h.updateUpstreamProxy)
+	r.Delete("/upstream-proxies/{id}", h.deleteUpstreamProxy)
+	r.Put("/upstream-proxies/{id}/users", h.setUpstreamProxyUsers)
+	r.Put("/upstream-proxies/{id}/groups", h.setUpstreamProxyGroups)
 	r.Get("/audit", h.listAudit)
 	return r
 }
@@ -380,6 +388,128 @@ func (h *HTTP) setGroupPolicies(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type resourceAssignment struct {
+	IDs []uuid.UUID `json:"ids"`
+}
+
+func (h *HTTP) listUpstreamProxies(w http.ResponseWriter, r *http.Request) {
+	values, err := h.upstreams.List(r.Context())
+	if err != nil {
+		internal(w)
+		return
+	}
+	type item struct {
+		proxyservice.Upstream
+		UserIDs  []uuid.UUID `json:"user_ids"`
+		GroupIDs []uuid.UUID `json:"group_ids"`
+	}
+	items := make([]item, 0, len(values))
+	for _, value := range values {
+		entry := item{Upstream: value, UserIDs: []uuid.UUID{}, GroupIDs: []uuid.UUID{}}
+		userRows, queryErr := h.db.Query(r.Context(), `SELECT user_id FROM user_upstream_proxies WHERE upstream_proxy_id=$1 ORDER BY user_id`, value.ID)
+		if queryErr != nil {
+			internal(w)
+			return
+		}
+		for userRows.Next() {
+			var id uuid.UUID
+			if userRows.Scan(&id) != nil {
+				userRows.Close()
+				internal(w)
+				return
+			}
+			entry.UserIDs = append(entry.UserIDs, id)
+		}
+		userRows.Close()
+		groupRows, queryErr := h.db.Query(r.Context(), `SELECT group_id FROM ldap_group_upstream_proxies WHERE upstream_proxy_id=$1 ORDER BY group_id`, value.ID)
+		if queryErr != nil {
+			internal(w)
+			return
+		}
+		for groupRows.Next() {
+			var id uuid.UUID
+			if groupRows.Scan(&id) != nil {
+				groupRows.Close()
+				internal(w)
+				return
+			}
+			entry.GroupIDs = append(entry.GroupIDs, id)
+		}
+		groupRows.Close()
+		items = append(items, entry)
+	}
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (h *HTTP) createUpstreamProxy(w http.ResponseWriter, r *http.Request) {
+	var input proxyservice.UpstreamInput
+	if !httpapi.DecodeJSON(w, r, &input) {
+		return
+	}
+	id, err := h.upstreams.Create(r.Context(), input)
+	if err != nil {
+		httpapi.Problem(w, http.StatusUnprocessableEntity, "invalid_upstream_proxy", err.Error())
+		return
+	}
+	h.audit(r, "upstream_proxy.create", "success", id.String(), map[string]any{"type": input.Type})
+	httpapi.WriteJSON(w, http.StatusCreated, map[string]any{"id": id})
+}
+
+func (h *HTTP) updateUpstreamProxy(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(w, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
+	var input proxyservice.UpstreamInput
+	if !httpapi.DecodeJSON(w, r, &input) {
+		return
+	}
+	if err := h.upstreams.Update(r.Context(), id, input); err != nil {
+		httpapi.Problem(w, http.StatusUnprocessableEntity, "invalid_upstream_proxy", err.Error())
+		return
+	}
+	h.audit(r, "upstream_proxy.update", "success", id.String(), map[string]any{"type": input.Type})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *HTTP) deleteUpstreamProxy(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(w, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
+	if err := h.upstreams.Delete(r.Context(), id); err != nil {
+		httpapi.Problem(w, http.StatusNotFound, "upstream_proxy_not_found", "上游代理不存在")
+		return
+	}
+	h.audit(r, "upstream_proxy.delete", "success", id.String(), nil)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *HTTP) setUpstreamProxyUsers(w http.ResponseWriter, r *http.Request) {
+	h.setUpstreamAssignments(w, r, "user_upstream_proxies", "user_id", "upstream_proxy.users")
+}
+
+func (h *HTTP) setUpstreamProxyGroups(w http.ResponseWriter, r *http.Request) {
+	h.setUpstreamAssignments(w, r, "ldap_group_upstream_proxies", "group_id", "upstream_proxy.groups")
+}
+
+func (h *HTTP) setUpstreamAssignments(w http.ResponseWriter, r *http.Request, table, column, eventType string) {
+	id, ok := parseID(w, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
+	var input resourceAssignment
+	if !httpapi.DecodeJSON(w, r, &input) {
+		return
+	}
+	if err := replaceResourceAssignments(r.Context(), h.db, table, column, id, input.IDs); err != nil {
+		httpapi.Problem(w, http.StatusUnprocessableEntity, "invalid_assignment", err.Error())
+		return
+	}
+	h.audit(r, eventType, "success", id.String(), map[string]any{"count": len(input.IDs)})
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *HTTP) listAudit(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(r.Context(), `SELECT id,actor_user_id,event_type,outcome,target,detail,created_at FROM audit_events ORDER BY id DESC LIMIT 200`)
 	if err != nil {
@@ -430,6 +560,26 @@ func replaceAssignments(ctx context.Context, db *pgxpool.Pool, table, column str
 	}
 	for _, policyID := range policies {
 		if _, err = tx.Exec(ctx, "INSERT INTO "+table+" ("+column+",policy_id) VALUES ($1,$2)", id, policyID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func replaceResourceAssignments(ctx context.Context, db *pgxpool.Pool, table, column string, proxyID uuid.UUID, ids []uuid.UUID) error {
+	if (table != "user_upstream_proxies" || column != "user_id") && (table != "ldap_group_upstream_proxies" || column != "group_id") {
+		return errors.New("invalid assignment table")
+	}
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, "DELETE FROM "+table+" WHERE upstream_proxy_id=$1", proxyID); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if _, err = tx.Exec(ctx, "INSERT INTO "+table+" ("+column+",upstream_proxy_id) VALUES ($1,$2)", id, proxyID); err != nil {
 			return err
 		}
 	}

@@ -15,8 +15,14 @@ export type Rule = { id?: string; kind: 'exact_host' | 'domain_suffix' | 'cidr' 
 export type Policy = { id: string; name: string; description: string; mode: PolicyMode; enabled: boolean; rules: Rule[] }
 export type PolicyMode = 'deny_all' | 'deny_intranet' | 'whitelist' | 'blacklist'
 export type PolicyInput = Omit<Policy, 'id'>
-export type ProxyContext = { id: string; current_url: string; created_at: string; last_active_at: string }
+export type ProxyContext = { id: string; current_url: string; upstream_proxy_id?: string | null; created_at: string; last_active_at: string }
 export type Navigation = { context?: ProxyContext; bootstrap_url: string; route_url: string }
+export type UpstreamProxy = {
+  id: string; name: string; type: 'http' | 'socks5'; host: string; port: number; username: string
+  password_configured: boolean; enabled: boolean; created_at: string; updated_at: string
+  user_ids?: string[]; group_ids?: string[]
+}
+export type UpstreamProxyInput = Pick<UpstreamProxy, 'name' | 'type' | 'host' | 'port' | 'username' | 'enabled'> & { password: string; clear_password?: boolean }
 export type LDAPSettings = {
   enabled: boolean; mode: string; url: string; start_tls: boolean; base_dn: string; bind_dn: string
   user_filter: string; user_dn_template: string; username_attribute: string; display_name_attribute: string
@@ -51,7 +57,8 @@ export const api = {
   session: () => request<Session>('/auth/session').then(remember),
   login: (username: string, password: string) => request<Session>('/auth/login', { method: 'POST', body: json({ username, password }) }).then(remember),
   logout: () => request<void>('/auth/logout', { method: 'POST' }).finally(() => { csrfToken = '' }),
-  createContext: (url: string) => request<Navigation>('/proxy/contexts/', { method: 'POST', body: json({ url }) }),
+  availableUpstreams: () => request<{ items: UpstreamProxy[] }>('/proxy/upstreams/'),
+  createContext: (url: string, upstream_proxy_id?: string) => request<Navigation>('/proxy/contexts/', { method: 'POST', body: json({ url, upstream_proxy_id: upstream_proxy_id || null }) }),
   navigate: (id: string, url: string) => request<Navigation>(`/proxy/contexts/${id}/navigate`, { method: 'POST', body: json({ url }) }),
   closeContext: (id: string) => request<void>(`/proxy/contexts/${id}`, { method: 'DELETE' }),
   users: () => request<{ items: User[] }>('/admin/users'),
@@ -68,5 +75,11 @@ export const api = {
   testLDAP: () => request<void>('/admin/ldap/test', { method: 'POST' }),
   groups: () => request<{ items: LDAPGroup[] }>('/admin/ldap/groups'),
   setGroupPolicies: (id: string, policy_ids: string[]) => request<void>(`/admin/ldap/groups/${id}/policies`, { method: 'PUT', body: json({ policy_ids }) }),
+  upstreams: () => request<{ items: UpstreamProxy[] }>('/admin/upstream-proxies'),
+  createUpstream: (value: UpstreamProxyInput) => request<{ id: string }>('/admin/upstream-proxies', { method: 'POST', body: json(value) }),
+  updateUpstream: (id: string, value: UpstreamProxyInput) => request<void>(`/admin/upstream-proxies/${id}`, { method: 'PUT', body: json(value) }),
+  deleteUpstream: (id: string) => request<void>(`/admin/upstream-proxies/${id}`, { method: 'DELETE' }),
+  setUpstreamUsers: (id: string, ids: string[]) => request<void>(`/admin/upstream-proxies/${id}/users`, { method: 'PUT', body: json({ ids }) }),
+  setUpstreamGroups: (id: string, ids: string[]) => request<void>(`/admin/upstream-proxies/${id}/groups`, { method: 'PUT', body: json({ ids }) }),
   audit: () => request<{ items: AuditEvent[] }>('/admin/audit'),
 }

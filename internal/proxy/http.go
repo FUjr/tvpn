@@ -1,9 +1,13 @@
 package proxy
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -18,6 +22,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	xproxy "golang.org/x/net/proxy"
 )
 
 const proxyCookieName = "tvpn_proxy_session"
@@ -28,6 +33,7 @@ type Service struct {
 	authStore       *auth.Store
 	guard           *Guard
 	cipher          *Cipher
+	upstreams       *UpstreamStore
 	appOrigin       *url.URL
 	proxyBaseDomain string
 	secure          bool
@@ -47,7 +53,19 @@ func NewService(db *pgxpool.Pool, authStore *auth.Store, appOrigin, proxyBaseDom
 	if err != nil {
 		return nil, err
 	}
-	return &Service{store: NewStore(db), policyStore: policy.NewStore(db), authStore: authStore, guard: guard, cipher: cipher, appOrigin: app, proxyBaseDomain: proxyBaseDomain, secure: secure, sessionTTL: sessionTTL}, nil
+	return &Service{store: NewStore(db), policyStore: policy.NewStore(db), authStore: authStore, guard: guard, cipher: cipher, upstreams: NewUpstreamStore(db, cipher), appOrigin: app, proxyBaseDomain: proxyBaseDomain, secure: secure, sessionTTL: sessionTTL}, nil
+}
+
+func (s *Service) UpstreamStore() *UpstreamStore { return s.upstreams }
+
+func (s *Service) AvailableUpstreams(w http.ResponseWriter, r *http.Request) {
+	session, _ := auth.SessionFromContext(r.Context())
+	values, err := s.upstreams.Effective(r.Context(), session.User.ID)
+	if err != nil {
+		proxyInternal(w)
+		return
+	}
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"items": values})
 }
 
 func (s *Service) AppRoutes() http.Handler {
@@ -61,12 +79,19 @@ func (s *Service) AppRoutes() http.Handler {
 
 func (s *Service) createContext(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		URL string `json:"url"`
+		URL             string     `json:"url"`
+		UpstreamProxyID *uuid.UUID `json:"upstream_proxy_id"`
 	}
 	if !httpapi.DecodeJSON(w, r, &input) {
 		return
 	}
 	session, _ := auth.SessionFromContext(r.Context())
+	if input.UpstreamProxyID != nil {
+		if _, err := s.upstreams.Authorized(r.Context(), session.User.ID, *input.UpstreamProxyID); err != nil {
+			httpapi.Problem(w, http.StatusForbidden, "upstream_proxy_denied", "未获授权或代理已停用")
+			return
+		}
+	}
 	target, decision, err := s.authorize(r.Context(), session.User.ID, input.URL)
 	if err != nil {
 		httpapi.Problem(w, http.StatusUnprocessableEntity, "invalid_target", err.Error())
@@ -77,7 +102,7 @@ func (s *Service) createContext(w http.ResponseWriter, r *http.Request) {
 		httpapi.Problem(w, http.StatusForbidden, "target_denied", "访问策略拒绝该目标")
 		return
 	}
-	contextValue, route, ticket, err := s.store.CreateContext(r.Context(), session.User.ID, target.URL)
+	contextValue, route, ticket, err := s.store.CreateContext(r.Context(), session.User.ID, target.URL, input.UpstreamProxyID)
 	if err != nil {
 		proxyInternal(w)
 		return
@@ -346,7 +371,11 @@ func (s *Service) forward(w http.ResponseWriter, r *http.Request, route Route) {
 	for _, cookie := range cookies {
 		out.AddCookie(cookie)
 	}
-	transport := s.transport(target)
+	transport, err := s.transport(r.Context(), target, route)
+	if err != nil {
+		httpapi.Problem(w, http.StatusBadGateway, "upstream_proxy_unavailable", "上游代理不可用或授权已撤销")
+		return
+	}
 	response, err := transport.RoundTrip(out)
 	if err != nil {
 		httpapi.Problem(w, http.StatusBadGateway, "upstream_error", "连接目标站点失败")
@@ -407,12 +436,95 @@ func (s *Service) forward(w http.ResponseWriter, r *http.Request, route Route) {
 	}
 }
 
-func (s *Service) transport(target Target) *http.Transport {
+func (s *Service) transport(ctx context.Context, target Target, route Route) (*http.Transport, error) {
 	address := target.Addresses[0]
 	dialer := net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}
-	return &http.Transport{Proxy: nil, ForceAttemptHTTP2: true, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, ServerName: target.URL.Hostname()}, DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
-		return dialer.DialContext(ctx, network, net.JoinHostPort(address.String(), strconv.Itoa(target.Port)))
-	}, ResponseHeaderTimeout: 30 * time.Second, TLSHandshakeTimeout: 10 * time.Second, IdleConnTimeout: 30 * time.Second}
+	transport := &http.Transport{Proxy: nil, ForceAttemptHTTP2: true, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, ServerName: target.URL.Hostname()}, ResponseHeaderTimeout: 30 * time.Second, TLSHandshakeTimeout: 10 * time.Second, IdleConnTimeout: 30 * time.Second}
+	pinnedAddress := net.JoinHostPort(address.String(), strconv.Itoa(target.Port))
+	if route.UpstreamProxyID == nil {
+		transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return dialer.DialContext(ctx, network, pinnedAddress)
+		}
+		return transport, nil
+	}
+	upstream, err := s.upstreams.Authorized(ctx, route.UserID, *route.UpstreamProxyID)
+	if err != nil {
+		return nil, err
+	}
+	proxyURL, err := s.upstreams.ProxyURL(upstream)
+	if err != nil {
+		return nil, err
+	}
+	switch upstream.Type {
+	case UpstreamHTTP:
+		proxyURL.Scheme = "http"
+		transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return dialHTTPProxy(ctx, &dialer, proxyURL, network, pinnedAddress)
+		}
+		return transport, nil
+	case UpstreamSOCKS5:
+		var authValue *xproxy.Auth
+		if upstream.Username != "" {
+			password, decryptErr := s.upstreams.Password(upstream)
+			if decryptErr != nil {
+				return nil, decryptErr
+			}
+			authValue = &xproxy.Auth{User: upstream.Username, Password: password}
+		}
+		socksDialer, dialErr := xproxy.SOCKS5("tcp", proxyURL.Host, authValue, &dialer)
+		if dialErr != nil {
+			return nil, dialErr
+		}
+		transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+			if contextDialer, ok := socksDialer.(xproxy.ContextDialer); ok {
+				return contextDialer.DialContext(ctx, network, pinnedAddress)
+			}
+			return socksDialer.Dial(network, pinnedAddress)
+		}
+	default:
+		return nil, errors.New("unsupported upstream proxy type")
+	}
+	return transport, nil
+}
+
+func dialHTTPProxy(ctx context.Context, dialer *net.Dialer, proxyURL *url.URL, network, targetAddress string) (net.Conn, error) {
+	connection, err := dialer.DialContext(ctx, network, proxyURL.Host)
+	if err != nil {
+		return nil, err
+	}
+	request := &http.Request{Method: http.MethodConnect, URL: &url.URL{Opaque: targetAddress}, Host: targetAddress, Header: make(http.Header)}
+	if proxyURL.User != nil {
+		password, _ := proxyURL.User.Password()
+		token := base64.StdEncoding.EncodeToString([]byte(proxyURL.User.Username() + ":" + password))
+		request.Header.Set("Proxy-Authorization", "Basic "+token)
+	}
+	handshakeDeadline := time.Now().Add(15 * time.Second)
+	if deadline, ok := ctx.Deadline(); ok && deadline.Before(handshakeDeadline) {
+		handshakeDeadline = deadline
+	}
+	if err := connection.SetDeadline(handshakeDeadline); err != nil {
+		connection.Close()
+		return nil, err
+	}
+	if err := request.Write(connection); err != nil {
+		connection.Close()
+		return nil, err
+	}
+	response, err := http.ReadResponse(bufio.NewReader(connection), request)
+	if err != nil {
+		connection.Close()
+		return nil, err
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		response.Body.Close()
+		connection.Close()
+		return nil, fmt.Errorf("HTTP proxy CONNECT failed: %s", response.Status)
+	}
+	if err := connection.SetDeadline(time.Time{}); err != nil {
+		connection.Close()
+		return nil, err
+	}
+	return connection, nil
 }
 func (s *Service) authorize(ctx context.Context, userID uuid.UUID, raw string) (Target, policy.Decision, error) {
 	target, err := s.guard.Resolve(ctx, raw)

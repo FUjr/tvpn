@@ -64,7 +64,7 @@ func New(cfg config.Config) (*Server, error) {
 		db.Close()
 		return nil, err
 	}
-	s := &Server{cfg: cfg, db: db, authHTTP: auth.NewHTTP(store, cfg.SessionTTL, !cfg.Development, ldapService), adminHTTP: admin.NewHTTP(db, store, ldapService), proxyHTTP: proxyHTTP}
+	s := &Server{cfg: cfg, db: db, authHTTP: auth.NewHTTP(store, cfg.SessionTTL, !cfg.Development, ldapService), adminHTTP: admin.NewHTTP(db, store, ldapService, proxyHTTP.UpstreamStore()), proxyHTTP: proxyHTTP}
 	s.router = s.routes()
 	return s, nil
 }
@@ -89,6 +89,10 @@ func (s *Server) routes() http.Handler {
 		r.Use(s.authHTTP.Authenticate)
 		r.Use(s.authHTTP.RequireCSRF)
 		r.Mount("/", s.proxyHTTP.AppRoutes())
+	})
+	r.Route("/api/v1/proxy/upstreams", func(r chi.Router) {
+		r.Use(s.authHTTP.Authenticate)
+		r.Get("/", s.proxyHTTP.AvailableUpstreams)
 	})
 	r.Get("/health/live", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

@@ -200,7 +200,10 @@ func (s *Service) muxRoundTrip(ctx context.Context, route Route, target Target, 
 		for _, cookie := range cookies {
 			request.AddCookie(cookie)
 		}
-		transport := s.transport(current)
+		transport, err := s.transport(ctx, current, route)
+		if err != nil {
+			return nil, Target{}, err
+		}
 		response, err := transport.RoundTrip(request)
 		transport.CloseIdleConnections()
 		if err != nil {

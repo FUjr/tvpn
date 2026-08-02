@@ -12,7 +12,7 @@
 | `TVPN_LDAP_BIND_PASSWORD_FILE` | 条件 | LDAP 搜索账号的绑定密码文件 |
 | `TVPN_LDAP_CA_FILE` | 否 | 私有 LDAP CA 的 PEM 文件 |
 | `TVPN_LDAP_ALLOW_INSECURE` | 否 | 仅开发环境允许明文 LDAP，生产环境拒绝启动 |
-| `TVPN_MASTER_KEY_FILE` | 生产必需 | 恰好 32 字节的代理 Cookie 加密主密钥文件 |
+| `TVPN_MASTER_KEY_FILE` | 生产必需 | 恰好 32 字节的代理 Cookie 与上游代理密码加密主密钥文件 |
 
 Compose 额外接受 `TVPN_ACCESS_DOMAIN`，默认 `localhost`。该值用于组合管理域 `app.<domain>` 和代理通配域 `*.proxy.<domain>`；从其他设备访问时必须让这两个域名都解析到 Tvpn 服务器，不能直接使用 `localhost`。
 
@@ -41,7 +41,7 @@ TVPN_PORT=18888 TVPN_ACCESS_DOMAIN=10-96-210-226.sslip.io ./scripts/dev.sh
 
 首次启动运行 `scripts/bootstrap-admin.sh`，交互输入的管理员密码经 `secrets/tvpn_bootstrap_admin_password` 传给容器，账号确认创建后该文件立即清空。脚本默认使用现有镜像，只重新创建应用容器以读取一次性引导配置；本地没有应用镜像时可显式运行 `scripts/bootstrap-admin.sh --build`。脚本和环境变量只在用户表为空时生效，不会覆盖现有管理员。
 
-`scripts/dev.sh` 会在首次运行时生成忽略版本控制的 `secrets/tvpn_master_key` 和空的引导密码 Secret。直接运行 Compose 前应先执行 `scripts/init-secrets.sh`；更换主密钥会使现有上游 Cookie 无法解密。
+`scripts/dev.sh` 会在首次运行时生成忽略版本控制的 `secrets/tvpn_master_key` 和空的引导密码 Secret。直接运行 Compose 前应先执行 `scripts/init-secrets.sh`；更换主密钥会使现有上游 Cookie 和已保存的上游代理密码无法解密。
 
 本地 Compose 通过 `TVPN_CONTAINER_UID`、`TVPN_CONTAINER_GID` 让非 root 容器读取宿主机 0600 Secret，`scripts/dev.sh` 会自动传入当前用户 ID。生产环境应使用容器平台的 Secret 权限映射。
 

@@ -32,7 +32,11 @@ func (s *Service) serveWebSocket(w http.ResponseWriter, r *http.Request, route R
 		headers.Add("Cookie", cookie.String())
 	}
 	protocols := splitProtocols(r.Header.Get("Sec-WebSocket-Protocol"))
-	transport := s.transport(target)
+	transport, err := s.transport(r.Context(), target, route)
+	if err != nil {
+		httpapi.Problem(w, http.StatusBadGateway, "upstream_proxy_unavailable", "上游代理不可用或授权已撤销")
+		return
+	}
 	upstream, response, err := websocket.Dial(r.Context(), target.URL.String(), &websocket.DialOptions{HTTPClient: &http.Client{Transport: transport}, HTTPHeader: headers, Subprotocols: protocols, CompressionMode: websocket.CompressionDisabled})
 	transport.CloseIdleConnections()
 	if err != nil {

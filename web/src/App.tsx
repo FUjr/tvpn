@@ -1,8 +1,8 @@
 import { FormEvent, type ReactNode, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, BookOpen, ChevronDown, ExternalLink, Globe2, KeyRound, LogOut, PanelTop, RefreshCw, Save, Settings, ShieldCheck, Trash2, UserPlus, Users, Wifi } from 'lucide-react'
-import { api, APIError, type AuditEvent, type LDAPGroup, type LDAPSettings, type Policy, type PolicyInput, type PolicyMode, type Session, type User } from './api/client'
+import { ArrowLeft, ArrowRight, BookOpen, ChevronDown, ExternalLink, Globe2, KeyRound, LogOut, Network, PanelTop, Plus, RefreshCw, Save, Settings, ShieldCheck, Trash2, UserPlus, Users, Wifi } from 'lucide-react'
+import { api, APIError, type AuditEvent, type LDAPGroup, type LDAPSettings, type Policy, type PolicyInput, type PolicyMode, type Session, type UpstreamProxy, type UpstreamProxyInput, type User } from './api/client'
 
-type View = 'browser' | 'users' | 'policies' | 'ldap' | 'audit'
+type View = 'browser' | 'users' | 'policies' | 'upstreams' | 'ldap' | 'audit'
 const policyLabels: Record<PolicyMode, string> = { deny_all: '禁止访问', deny_intranet: '禁止内网', whitelist: '白名单', blacklist: '黑名单' }
 const blankPolicy: PolicyInput = { name: '', description: '', mode: 'deny_intranet', enabled: true, rules: [] }
 
@@ -21,7 +21,8 @@ export function App() {
         <NavButton active={view === 'browser'} icon={<PanelTop />} label="浏览" onClick={() => setView('browser')} />
         {session.user.is_admin && <>
           <NavButton active={view === 'users'} icon={<Users />} label="用户" onClick={() => setView('users')} />
-          <NavButton active={view === 'policies'} icon={<ShieldCheck />} label="策略" onClick={() => setView('policies')} />
+	          <NavButton active={view === 'policies'} icon={<ShieldCheck />} label="策略" onClick={() => setView('policies')} />
+	          <NavButton active={view === 'upstreams'} icon={<Network />} label="代理" onClick={() => setView('upstreams')} />
           <NavButton active={view === 'ldap'} icon={<Settings />} label="LDAP" onClick={() => setView('ldap')} />
           <NavButton active={view === 'audit'} icon={<BookOpen />} label="审计" onClick={() => setView('audit')} />
         </>}
@@ -31,7 +32,8 @@ export function App() {
     <main className={view === 'browser' ? 'workspace' : 'admin-page'}>
       {view === 'browser' && <Browser />}
       {view === 'users' && <UsersView show={show} />}
-      {view === 'policies' && <PoliciesView show={show} />}
+	      {view === 'policies' && <PoliciesView show={show} />}
+	      {view === 'upstreams' && <UpstreamsView show={show} />}
       {view === 'ldap' && <LDAPView show={show} />}
       {view === 'audit' && <AuditView />}
     </main>
@@ -50,19 +52,33 @@ function Login({ onLogin }: { onLogin: (session: Session) => void }) {
 }
 
 function Browser() {
-  const [address, setAddress] = useState(''); const [contextID, setContextID] = useState(''); const [frameURL, setFrameURL] = useState(''); const [error, setError] = useState(''); const [loading, setLoading] = useState(false); const frame = useRef<HTMLIFrameElement>(null)
-  const go = async (event?: FormEvent) => { event?.preventDefault(); if (!address.trim()) return; setLoading(true); setError(''); try { const nav = contextID ? await api.navigate(contextID, address) : await api.createContext(address); if (nav.context) setContextID(nav.context.id); setFrameURL(nav.bootstrap_url) } catch (e) { setError(message(e)) } finally { setLoading(false) } }
+  const [address, setAddress] = useState(''); const [contextID, setContextID] = useState(''); const [frameURL, setFrameURL] = useState(''); const [error, setError] = useState(''); const [loading, setLoading] = useState(false); const [upstreams, setUpstreams] = useState<UpstreamProxy[]>([]); const [upstreamID, setUpstreamID] = useState(''); const frame = useRef<HTMLIFrameElement>(null)
+  const go = async (event?: FormEvent) => { event?.preventDefault(); if (!address.trim()) return; setLoading(true); setError(''); try { const nav = contextID ? await api.navigate(contextID, address) : await api.createContext(address, upstreamID); if (nav.context) setContextID(nav.context.id); setFrameURL(nav.bootstrap_url) } catch (e) { setError(message(e)) } finally { setLoading(false) } }
   const command = (action: string) => frame.current?.contentWindow?.postMessage({ type: 'tvpn:command', action }, new URL(frameURL).origin)
   useEffect(() => { const receive = (event: MessageEvent) => { if (event.source !== frame.current?.contentWindow || event.data?.type !== 'tvpn:navigation') return; if (typeof event.data.url === 'string') setAddress(event.data.url) }; addEventListener('message', receive); return () => removeEventListener('message', receive) }, [])
+  useEffect(() => { api.availableUpstreams().then(x => setUpstreams(x.items)).catch(e => setError(message(e))) }, [])
   useEffect(() => () => { if (contextID) void api.closeContext(contextID) }, [contextID])
   return <section className="browser-shell">
     <form className="browser-toolbar" onSubmit={go}>
-      <div className="history-controls"><button type="button" className="icon-button" title="后退" disabled={!frameURL} onClick={() => command('back')}><ArrowLeft /></button><button type="button" className="icon-button" title="前进" disabled={!frameURL} onClick={() => command('forward')}><ArrowRight /></button><button type="button" className="icon-button" title="刷新" disabled={!frameURL} onClick={() => command('reload')}><RefreshCw className={loading ? 'spin' : ''} /></button></div>
+	      <div className="history-controls"><button type="button" className="icon-button" title="后退" disabled={!frameURL} onClick={() => command('back')}><ArrowLeft /></button><button type="button" className="icon-button" title="前进" disabled={!frameURL} onClick={() => command('forward')}><ArrowRight /></button><button type="button" className="icon-button" title="刷新" disabled={!frameURL} onClick={() => command('reload')}><RefreshCw className={loading ? 'spin' : ''} /></button></div>
+	      <label className="upstream-selector"><Network /><select aria-label="上游代理" title="上游代理" value={upstreamID} onChange={e => { if (contextID) void api.closeContext(contextID); setContextID(''); setFrameURL(''); setUpstreamID(e.target.value) }}><option value="">服务端直连</option>{upstreams.map(value => <option key={value.id} value={value.id}>{value.name} · {value.type.toUpperCase()}</option>)}</select></label>
       <div className="address-field"><Globe2 /><input aria-label="网址" placeholder="输入网址或 IP 地址" value={address} onChange={e => setAddress(e.target.value)} /><button className="go-button" title="访问" disabled={loading || !address.trim()}><ExternalLink /></button></div>
     </form>
     {error && <div className="browser-error">{error}</div>}
     <div className="viewport">{frameURL ? <iframe ref={frame} src={frameURL} title="WebVPN 页面" onLoad={() => setLoading(false)} /> : <div className="empty-browser"><Globe2 /><h1>开始安全浏览</h1><p>在上方输入已获授权的网址</p></div>}</div>
   </section>
+}
+
+function UpstreamsView({ show }: { show: (s: string) => void }) {
+  const [items, setItems] = useState<UpstreamProxy[]>([]); const [users, setUsers] = useState<User[]>([]); const [groups, setGroups] = useState<LDAPGroup[]>([]); const [editing, setEditing] = useState<UpstreamProxy | null | undefined>()
+  const load = () => Promise.all([api.upstreams(), api.users(), api.groups()]).then(([p, u, g]) => { setItems(p.items); setUsers(u.items); setGroups(g.items) })
+  useEffect(() => { void load() }, [])
+  return <Page title="上游代理" action={<button className="primary" onClick={() => setEditing(null)}><Plus />新建代理</button>}><div className="table-wrap"><table><thead><tr><th>代理</th><th>类型</th><th>地址</th><th>认证</th><th>状态</th><th>授权用户</th><th>授权 LDAP 组</th><th>操作</th></tr></thead><tbody>{items.map(value => <tr key={value.id}><td><strong>{value.name}</strong></td><td>{value.type.toUpperCase()}</td><td className="mono">{value.host}:{value.port}</td><td>{value.username ? `${value.username}${value.password_configured ? ' · 密码已配置' : ''}` : '无认证'}</td><td><span className={`status ${value.enabled ? '' : 'off'}`}>{value.enabled ? '启用' : '停用'}</span></td><td><ResourcePicker label="用户" values={value.user_ids || []} options={users.map(user => ({ id: user.id, name: user.display_name || user.username }))} onChange={async ids => { await api.setUpstreamUsers(value.id, ids); await load(); show('用户授权已更新') }} /></td><td><ResourcePicker label="LDAP 组" values={value.group_ids || []} options={groups.map(group => ({ id: group.id, name: group.name }))} onChange={async ids => { await api.setUpstreamGroups(value.id, ids); await load(); show('组授权已更新') }} /></td><td><div className="row-actions"><button className="quiet" onClick={() => setEditing(value)}>编辑</button><button className="icon-button danger" title="删除" onClick={async () => { if (confirm(`删除代理“${value.name}”？活动中的相关浏览上下文也会关闭。`)) { await api.deleteUpstream(value.id); await load(); show('代理已删除') } }}><Trash2 /></button></div></td></tr>)}</tbody></table></div>{editing !== undefined && <UpstreamDialog value={editing} close={() => setEditing(undefined)} done={async () => { setEditing(undefined); await load(); show('代理已保存') }} />}</Page>
+}
+
+function UpstreamDialog({ value, close, done }: { value: UpstreamProxy | null; close: () => void; done: () => void }) {
+  const [input, setInput] = useState<UpstreamProxyInput>(value ? { name: value.name, type: value.type, host: value.host, port: value.port, username: value.username, password: '', enabled: value.enabled } : { name: '', type: 'http', host: '', port: 3128, username: '', password: '', enabled: true }); const [error, setError] = useState('')
+  return <div className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && close()}><form className="modal" onSubmit={async e => { e.preventDefault(); try { if (value) await api.updateUpstream(value.id, input); else await api.createUpstream(input); done() } catch (x) { setError(message(x)) } }}><h2>{value ? '编辑上游代理' : '新建上游代理'}</h2><div className="form-grid"><label>名称<input required value={input.name} onChange={e => setInput({ ...input, name: e.target.value })} /></label><label>类型<select value={input.type} onChange={e => setInput({ ...input, type: e.target.value as 'http' | 'socks5', port: input.port || (e.target.value === 'socks5' ? 1080 : 3128) })}><option value="http">HTTP</option><option value="socks5">SOCKS5</option></select></label><label>主机或 IP<input required placeholder="proxy.example.com" value={input.host} onChange={e => setInput({ ...input, host: e.target.value })} /></label><label>端口<input required type="number" min="1" max="65535" value={input.port} onChange={e => setInput({ ...input, port: Number(e.target.value) })} /></label><label>用户名<input autoComplete="off" value={input.username} onChange={e => setInput({ ...input, username: e.target.value })} /></label><label>密码<input type="password" autoComplete="new-password" placeholder={value?.password_configured ? '留空则保留现有密码' : '可选'} value={input.password} onChange={e => setInput({ ...input, password: e.target.value })} /></label><label className="checkbox wide"><input type="checkbox" checked={input.enabled} onChange={e => setInput({ ...input, enabled: e.target.checked })} />启用代理</label>{value?.password_configured && <label className="checkbox wide"><input type="checkbox" checked={Boolean(input.clear_password)} onChange={e => setInput({ ...input, clear_password: e.target.checked })} />清除已保存的密码</label>}</div>{error && <p className="form-error">{error}</p>}<div className="modal-actions"><button type="button" className="quiet" onClick={close}>取消</button><button className="primary"><Save />保存</button></div></form></div>
 }
 
 function UsersView({ show }: { show: (s: string) => void }) {
@@ -109,6 +125,7 @@ function LDAPView({ show }: { show: (s: string) => void }) {
 function AuditView() { const [items, setItems] = useState<AuditEvent[]>([]); useEffect(() => { api.audit().then(x => setItems(x.items)) }, []); return <Page title="审计日志"><div className="table-wrap"><table><thead><tr><th>时间</th><th>事件</th><th>结果</th><th>目标</th><th>操作者</th></tr></thead><tbody>{items.map(x => <tr key={x.id}><td>{formatDate(x.created_at)}</td><td className="mono">{x.event_type}</td><td><span className={`status ${x.outcome === 'success' || x.outcome === 'allowed' ? '' : 'warn'}`}>{x.outcome}</span></td><td className="audit-target">{x.target}</td><td className="mono">{x.actor_user_id?.slice(0, 8) || 'system'}</td></tr>)}</tbody></table></div></Page> }
 
 function PolicyPicker({ values, policies, onChange }: { values: string[]; policies: Policy[]; onChange: (ids: string[]) => void }) { return <details className="policy-picker"><summary>{values.length ? `${values.length} 项策略` : '未分配'}<ChevronDown /></summary><div>{policies.map(p => <label key={p.id}><input type="checkbox" checked={values.includes(p.id)} onChange={e => onChange(e.target.checked ? [...values, p.id] : values.filter(id => id !== p.id))} />{p.name}</label>)}</div></details> }
+function ResourcePicker({ label, values, options, onChange }: { label: string; values: string[]; options: { id: string; name: string }[]; onChange: (ids: string[]) => void }) { return <details className="policy-picker"><summary>{values.length ? `${values.length} 项` : `无${label}`}<ChevronDown /></summary><div>{options.length ? options.map(option => <label key={option.id}><input type="checkbox" checked={values.includes(option.id)} onChange={e => onChange(e.target.checked ? [...values, option.id] : values.filter(id => id !== option.id))} />{option.name}</label>) : <span className="picker-empty">暂无可选项</span>}</div></details> }
 function Page({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) { return <section><div className="page-heading"><h1>{title}</h1>{action}</div>{children}</section> }
 function NavButton({ active, icon, label, onClick }: { active: boolean; icon: ReactNode; label: string; onClick: () => void }) { return <button className={active ? 'active' : ''} onClick={onClick}>{icon}<span>{label}</span></button> }
 function message(error: unknown) { return error instanceof APIError || error instanceof Error ? error.message : '操作失败' }

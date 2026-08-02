@@ -26,3 +26,9 @@
 - `proxy_contexts`、`proxy_routes`：将用户浏览上下文及每个上游 Origin 映射到随机代理子域。
 - `proxy_tickets`、`proxy_sessions`：保存一次性票据和代理域会话的令牌摘要，管理域 Cookie 不会发送给代理页面。
 - `proxy_cookies`：按原始 Domain、Path、Secure 等属性保存上游 Cookie；值使用 `TVPN_MASTER_KEY_FILE` 加密。
+
+## 005 上游代理
+
+- `upstream_proxies`：保存 HTTP/SOCKS5 代理地址、状态和可选用户名；密码使用 `TVPN_MASTER_KEY_FILE` 加密，接口只返回是否已配置。
+- `user_upstream_proxies`、`ldap_group_upstream_proxies`：分别保存用户和 LDAP 组授权，用户有效列表取两者并集。
+- `proxy_contexts.upstream_proxy_id`：固定该浏览上下文选择的出口；空值表示服务端直连。删除代理会同时关闭并删除引用它的上下文。
