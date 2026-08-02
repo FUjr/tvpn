@@ -42,7 +42,7 @@ func NewGuard(appOrigin, proxyBaseDomain string) (*Guard, error) {
 }
 
 func (g *Guard) Resolve(ctx context.Context, raw string) (Target, error) {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
+	parsed, err := url.Parse(normalizeTargetURL(raw))
 	if err != nil || !parsed.IsAbs() || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return Target{}, errors.New("only absolute HTTP and HTTPS URLs are supported")
 	}
@@ -88,6 +88,17 @@ func (g *Guard) Resolve(ctx context.Context, raw string) (Target, error) {
 		}
 	}
 	return Target{URL: parsed, Addresses: addresses, Port: port}, nil
+}
+
+func normalizeTargetURL(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" || strings.Contains(value, "://") {
+		return value
+	}
+	if strings.HasPrefix(value, "//") {
+		return "http:" + value
+	}
+	return "http://" + value
 }
 
 func hardDenied(address netip.Addr) bool {

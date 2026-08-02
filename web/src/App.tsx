@@ -58,7 +58,7 @@ function Browser() {
   return <section className="browser-shell">
     <form className="browser-toolbar" onSubmit={go}>
       <div className="history-controls"><button type="button" className="icon-button" title="后退" disabled={!frameURL} onClick={() => command('back')}><ArrowLeft /></button><button type="button" className="icon-button" title="前进" disabled={!frameURL} onClick={() => command('forward')}><ArrowRight /></button><button type="button" className="icon-button" title="刷新" disabled={!frameURL} onClick={() => command('reload')}><RefreshCw className={loading ? 'spin' : ''} /></button></div>
-      <div className="address-field"><Globe2 /><input aria-label="网址" placeholder="输入 https://example.com" value={address} onChange={e => setAddress(e.target.value)} /><button className="go-button" title="访问" disabled={loading || !address.trim()}><ExternalLink /></button></div>
+      <div className="address-field"><Globe2 /><input aria-label="网址" placeholder="输入网址或 IP 地址" value={address} onChange={e => setAddress(e.target.value)} /><button className="go-button" title="访问" disabled={loading || !address.trim()}><ExternalLink /></button></div>
     </form>
     {error && <div className="browser-error">{error}</div>}
     <div className="viewport">{frameURL ? <iframe ref={frame} src={frameURL} title="WebVPN 页面" onLoad={() => setLoading(false)} /> : <div className="empty-browser"><Globe2 /><h1>开始安全浏览</h1><p>在上方输入已获授权的网址</p></div>}</div>

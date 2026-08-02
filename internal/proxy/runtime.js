@@ -181,7 +181,6 @@
   async function navigate(value, destination = window) { destination.location.href = await resolveURL(value); }
   document.addEventListener('click', event => { const link = event.target.closest?.('a[href]'); if (!link || event.defaultPrevented || event.button !== 0 || link.download) return; const target = link.getAttribute('target'); if (target && target !== '_self') return; event.preventDefault(); navigate(link.href).catch(console.error); }, true);
   const nativeSubmit = HTMLFormElement.prototype.submit;
-  document.addEventListener('submit', event => { const form = event.target; if (!(form instanceof HTMLFormElement)) return; event.preventDefault(); resolveURL(form.action || upstreamBase.href).then(action => { form.action = action; nativeSubmit.call(form); }).catch(console.error); }, true);
   HTMLFormElement.prototype.submit = function() { resolveURL(this.action || upstreamBase.href).then(action => { this.action = action; nativeSubmit.call(this); }).catch(console.error); };
   window.open = function(url, target, features) { if (!url) return nativeOpen(url, target, features); const child = nativeOpen('about:blank', target, features); if (child) navigate(url, child).catch(() => child.close()); return child; };
 

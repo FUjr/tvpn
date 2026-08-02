@@ -49,8 +49,9 @@ func page(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Security-Policy", "default-src 'self'")
 	_, _ = fmt.Fprint(w, `<!doctype html><html><head><title>Tvpn fixture</title></head><body>
-<a id="redirect" href="/redirect">redirect</a><div id="fetch">pending</div><div id="cookie">pending</div><div id="cookie-js">pending</div><div id="xhr">pending</div><div id="sse">pending</div><div id="socket">pending</div><div id="binary">pending</div>
+<a id="redirect" href="/redirect">redirect</a><form id="managed-form"><input name="secret" value="must-not-enter-url"><button>managed-submit</button></form><div id="managed">pending</div><div id="fetch">pending</div><div id="cookie">pending</div><div id="cookie-js">pending</div><div id="xhr">pending</div><div id="sse">pending</div><div id="socket">pending</div><div id="binary">pending</div>
 <script>
+document.querySelector('#managed-form').addEventListener('submit', event => { event.preventDefault(); document.querySelector('#managed').textContent = 'managed-submit-ok'; });
 fetch('/api').then(r => r.json()).then(v => { document.querySelector('#fetch').textContent = v.value; document.cookie = 'client=browser; Path=/'; return fetch('/cookie-check'); }).then(r => r.text()).then(v => { document.querySelector('#cookie').textContent = v; setTimeout(() => fetch('/cookie-js-check').then(r => r.text()).then(text => document.querySelector('#cookie-js').textContent = text), 100); });
 const xhr = new XMLHttpRequest(); xhr.open('GET', '/xhr'); xhr.onload = () => document.querySelector('#xhr').textContent = xhr.responseText; xhr.send();
 const events = new EventSource('/events'); events.onmessage = event => { document.querySelector('#sse').textContent = event.data; events.close(); };
