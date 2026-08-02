@@ -10,6 +10,8 @@
   const nativeOpen = window.open.bind(window);
   const upstreamBase = new URL(config.upstreamURL);
   const INTERNAL_PREFIX = '/__tvpn/';
+	const compatibilityMode = config.compatibilityMode === true;
+	const proxyBaseHostname = new URL(`${location.protocol}//${config.proxyBaseDomain}`).hostname;
 
   const visibleCookies = new Map();
   for (const item of (config.cookies || '').split(/;\s*/)) { const index=item.indexOf('='); if(index>0)visibleCookies.set(item.slice(0,index),item.slice(index+1)); }
@@ -25,10 +27,16 @@
       get() { return [...visibleCookies].map(([name,value]) => `${name}=${value}`).join('; '); },
       set(value) {
 		updateVisibleCookie(value);
-        NativeFetch('/__tvpn/cookie', { method:'POST', credentials:'include', headers:{'Content-Type':'application/json','X-Tvpn-Upstream-Path':upstreamBase.pathname}, body:JSON.stringify({cookie:String(value)}) }).catch(()=>{});
+		queueCookieWrite(value);
       },
     });
   } catch {}
+	let cookieWrites = Promise.resolve();
+	function queueCookieWrite(value) {
+		const write = () => NativeFetch('/__tvpn/cookie', { method:'POST', credentials:'include', headers:{'Content-Type':'application/json','X-Tvpn-Upstream-Path':location.pathname || '/'}, body:JSON.stringify({cookie:String(value)}) });
+		if (!compatibilityMode) { write().catch(()=>{}); return; }
+		cookieWrites = cookieWrites.catch(()=>{}).then(write).then(()=>{});
+	}
 
   function absoluteTarget(value) {
     const candidate = value instanceof Request ? value.url : String(value);
@@ -41,7 +49,7 @@
     return parsed.href;
   }
 
-  async function resolveURL(value) {
+	async function requestResolvedURL(value) {
     const response = await NativeFetch('/__tvpn/resolve', {
       method: 'POST',
       credentials: 'include',
@@ -51,6 +59,45 @@
     if (!response.ok) throw new Error(`Tvpn URL resolution failed (${response.status})`);
     return (await response.json()).url;
   }
+
+	const resolvedURLs = new Map();
+	const resolvingURLs = new Map();
+	const resolutionQueue = [];
+	let activeResolutions = 0;
+	function isProxyURL(value) {
+		try {
+			const parsed = new URL(String(value), location.href);
+			return parsed.hostname.endsWith(`.${proxyBaseHostname}`);
+		} catch { return false; }
+	}
+	function scheduleResolution(task) {
+		return new Promise((resolve, reject) => {
+			resolutionQueue.push({ task, resolve, reject });
+			drainResolutions();
+		});
+	}
+	function drainResolutions() {
+		while (activeResolutions < 24 && resolutionQueue.length) {
+			const item = resolutionQueue.shift();
+			activeResolutions++;
+			item.task().then(item.resolve, item.reject).finally(() => { activeResolutions--; drainResolutions(); });
+		}
+	}
+	function resolveURL(value) {
+		if (!compatibilityMode) return requestResolvedURL(value);
+		if (isProxyURL(value)) return Promise.resolve(String(value));
+		let target;
+		try { target = absoluteTarget(value); } catch (error) { return Promise.reject(error); }
+		if (resolvedURLs.has(target)) return Promise.resolve(resolvedURLs.get(target));
+		if (resolvingURLs.has(target)) return resolvingURLs.get(target);
+		const pendingResolution = scheduleResolution(() => requestResolvedURL(target)).then(result => {
+			if (resolvedURLs.size >= 4096) resolvedURLs.delete(resolvedURLs.keys().next().value);
+			resolvedURLs.set(target, result);
+			return result;
+		}).finally(() => resolvingURLs.delete(target));
+		resolvingURLs.set(target, pendingResolution);
+		return pendingResolution;
+	}
 
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
@@ -207,7 +254,7 @@
   function rewriteNode(node) {
     if (!(node instanceof Element)) return;
     const names = ['href','src','action','formaction','poster','data','cite','background'];
-    for (const name of names) if (node.hasAttribute(name)) { const raw=node.getAttribute(name); if(raw && !raw.startsWith('#') && !/^(data|blob|javascript|mailto|tel):/i.test(raw)) resolveURL(raw).then(value => { if (value !== raw) node.setAttribute(name,value); }).catch(()=>{}); }
+	  for (const name of names) if (node.hasAttribute(name)) { const raw=node.getAttribute(name); if(raw && !raw.startsWith('#') && !/^(data|blob|javascript|mailto|tel):/i.test(raw)) resolveURL(raw).then(value => { if (node.isConnected && node.getAttribute(name) === raw && value !== raw) node.setAttribute(name,value); }).catch(()=>{}); }
   }
   new MutationObserver(records => { for (const record of records) { if(record.type==='attributes')rewriteNode(record.target);for(const node of record.addedNodes){rewriteNode(node);node.querySelectorAll?.('[href],[src],[action],[formaction],[poster],[data],[cite],[background]').forEach(rewriteNode);} } }).observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:['href','src','action','formaction','poster','data','cite','background']});
 

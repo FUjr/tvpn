@@ -84,8 +84,9 @@ func (s *Service) AppRoutes() http.Handler {
 
 func (s *Service) createContext(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		URL             string     `json:"url"`
-		UpstreamProxyID *uuid.UUID `json:"upstream_proxy_id"`
+		URL               string     `json:"url"`
+		UpstreamProxyID   *uuid.UUID `json:"upstream_proxy_id"`
+		CompatibilityMode bool       `json:"compatibility_mode"`
 	}
 	if !httpapi.DecodeJSON(w, r, &input) {
 		return
@@ -117,7 +118,7 @@ func (s *Service) createContext(w http.ResponseWriter, r *http.Request) {
 		httpapi.Problem(w, http.StatusForbidden, "target_denied", "访问策略拒绝该目标")
 		return
 	}
-	contextValue, route, ticket, err := s.store.CreateContext(r.Context(), session.User.ID, target.URL, input.UpstreamProxyID)
+	contextValue, route, ticket, err := s.store.CreateContext(r.Context(), session.User.ID, target.URL, input.UpstreamProxyID, input.CompatibilityMode)
 	if err != nil {
 		proxyInternal(w)
 		return
@@ -215,12 +216,17 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cookie, err := r.Cookie(proxyCookieName)
-	if err != nil {
+	authenticated := false
+	if err == nil {
+		userID, authErr := s.store.AuthenticateProxy(r.Context(), cookie.Value)
+		authenticated = authErr == nil && userID == route.UserID
+	}
+	compatibilityAllowed := s.compatibilityRequestAllowed(r, route)
+	if err != nil && !compatibilityAllowed {
 		httpapi.Problem(w, http.StatusUnauthorized, "proxy_session_required", "代理会话不存在")
 		return
 	}
-	userID, err := s.store.AuthenticateProxy(r.Context(), cookie.Value)
-	if err != nil || userID != route.UserID {
+	if !authenticated && !compatibilityAllowed {
 		httpapi.Problem(w, http.StatusUnauthorized, "proxy_session_invalid", "代理会话已失效")
 		return
 	}
@@ -248,6 +254,22 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.forward(w, r, route)
+}
+
+func (s *Service) compatibilityRequestAllowed(r *http.Request, route Route) bool {
+	if !route.CompatibilityMode || strings.HasPrefix(r.URL.Path, "/__tvpn/") {
+		return false
+	}
+	switch r.Header.Get("Sec-Fetch-Dest") {
+	case "document", "iframe", "frame":
+		return false
+	}
+	source := r.Header.Get("Origin")
+	if source == "" {
+		return false
+	}
+	_, ok := s.mapProxyURLForContext(r.Context(), route, source)
+	return ok
 }
 
 func (s *Service) setDocumentCookie(w http.ResponseWriter, r *http.Request, route Route) {
@@ -364,7 +386,11 @@ func (s *Service) forward(w http.ResponseWriter, r *http.Request, route Route) {
 	browserOrigin := out.Header.Get("Origin")
 	upstreamOrigin := ""
 	if browserOrigin != "" {
-		if mapped, ok := s.mapProxyURL(r.Context(), browserOrigin); ok {
+		mapped, ok := s.mapProxyURL(r.Context(), browserOrigin)
+		if route.CompatibilityMode {
+			mapped, ok = s.mapProxyURLForContext(r.Context(), route, browserOrigin)
+		}
+		if ok {
 			upstreamOrigin = mapped
 			out.Header.Set("Origin", mapped)
 		} else {
@@ -372,7 +398,11 @@ func (s *Service) forward(w http.ResponseWriter, r *http.Request, route Route) {
 		}
 	}
 	if referer := out.Header.Get("Referer"); referer != "" {
-		if mapped, ok := s.mapProxyURL(r.Context(), referer); ok {
+		mapped, ok := s.mapProxyURL(r.Context(), referer)
+		if route.CompatibilityMode {
+			mapped, ok = s.mapProxyURLForContext(r.Context(), route, referer)
+		}
+		if ok {
 			out.Header.Set("Referer", mapped)
 		} else {
 			out.Header.Del("Referer")
@@ -418,9 +448,7 @@ func (s *Service) forward(w http.ResponseWriter, r *http.Request, route Route) {
 			response.Header.Set("Location", s.routeURL(redirectRoute, redirect.URL))
 		}
 	}
-	if browserOrigin != "" && upstreamOrigin != "" && response.Header.Get("Access-Control-Allow-Origin") == upstreamOrigin {
-		response.Header.Set("Access-Control-Allow-Origin", browserOrigin)
-	}
+	translateCORS(response.Header, r.Header, browserOrigin, upstreamOrigin, route.CompatibilityMode)
 	stripHopHeaders(response.Header)
 	contentType := response.Header.Get("Content-Type")
 	if response.StatusCode >= 200 && response.StatusCode < 300 && (strings.Contains(strings.ToLower(contentType), "text/html") || strings.Contains(strings.ToLower(contentType), "text/css")) {
@@ -449,6 +477,43 @@ func (s *Service) forward(w http.ResponseWriter, r *http.Request, route Route) {
 		s.store.UpdateCurrentURL(r.Context(), route.ContextID, target.URL.String())
 		s.audit(r.Context(), route.UserID, "proxy.navigate", target.URL.String(), "allowed")
 	}
+}
+
+func translateCORS(response, request http.Header, browserOrigin, upstreamOrigin string, compatibilityMode bool) {
+	if browserOrigin == "" || upstreamOrigin == "" {
+		return
+	}
+	allowedOrigin := response.Get("Access-Control-Allow-Origin")
+	if !compatibilityMode {
+		if allowedOrigin == upstreamOrigin {
+			response.Set("Access-Control-Allow-Origin", browserOrigin)
+		}
+		return
+	}
+	// Compatibility mode deliberately relaxes CORS only to the authenticated
+	// requester route. It never exposes a response through a wildcard origin.
+	response.Set("Access-Control-Allow-Origin", browserOrigin)
+	response.Set("Access-Control-Allow-Credentials", "true")
+	addVary(response, "Origin")
+	if request.Get("Access-Control-Request-Method") != "" {
+		if response.Get("Access-Control-Allow-Methods") == "" {
+			response.Set("Access-Control-Allow-Methods", request.Get("Access-Control-Request-Method"))
+		}
+		if response.Get("Access-Control-Allow-Headers") == "" && request.Get("Access-Control-Request-Headers") != "" {
+			response.Set("Access-Control-Allow-Headers", request.Get("Access-Control-Request-Headers"))
+		}
+	}
+}
+
+func addVary(header http.Header, value string) {
+	for _, item := range header.Values("Vary") {
+		for _, field := range strings.Split(item, ",") {
+			if strings.EqualFold(strings.TrimSpace(field), value) {
+				return
+			}
+		}
+	}
+	header.Add("Vary", value)
 }
 
 func (s *Service) transport(ctx context.Context, target Target, route Route) (*http.Transport, error) {
@@ -575,6 +640,10 @@ func (s *Service) routeURL(route Route, target *url.URL) string {
 	return s.appOrigin.Scheme + "://" + routeLabel(route.ID) + "." + s.proxyBaseDomain + target.EscapedPath() + querySuffix(target.RawQuery)
 }
 func (s *Service) mapProxyURL(ctx context.Context, value string) (string, bool) {
+	return s.mapProxyURLForContext(ctx, Route{}, value)
+}
+
+func (s *Service) mapProxyURLForContext(ctx context.Context, current Route, value string) (string, bool) {
 	parsed, err := url.Parse(value)
 	if err != nil {
 		return "", false
@@ -587,6 +656,9 @@ func (s *Service) mapProxyURL(ctx context.Context, value string) (string, bool) 
 	label := strings.TrimSuffix(host, "."+base)
 	route, err := s.store.RouteByLabel(ctx, label)
 	if err != nil {
+		return "", false
+	}
+	if current.ContextID != uuid.Nil && (route.ContextID != current.ContextID || route.UserID != current.UserID) {
 		return "", false
 	}
 	parsed.Scheme = route.Scheme

@@ -37,3 +37,7 @@
 
 - `direct_access_settings`：单行保存直连是否启用 ACL；默认关闭 ACL，升级后继续允许全部用户直连。
 - `direct_access_users`、`direct_access_ldap_groups`：保存直连的用户和 LDAP 组授权。启用 ACL 后用户满足任一授权即可使用直连，空授权表示无人可直连。
+
+## 007 代理兼容模式
+
+- `proxy_contexts.compatibility_mode`：保存该浏览上下文是否启用额外跨域和动态资源兼容处理；默认关闭，避免改变已有上下文行为。

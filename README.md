@@ -14,7 +14,7 @@ LDAP 登录支持 LDAPS/StartTLS、搜索绑定或 DN 模板，并在登录成�
 
 WebVPN 转发已实现独立 Origin 路由、一次性 bootstrap、请求级策略和 DNS 重绑定防护、重定向改写，以及 AES-256-GCM 加密的服务端 Cookie Jar。管理员可以维护带可选认证的 HTTP 或 SOCKS5 上游代理并授权给用户或 LDAP 组；服务端直连也可启用独立 ACL，从而让指定用户只能使用代理出口。
 
-注入运行时会 Hook URL 与导航行为；Fetch、XHR、SSE 和 Beacon 强制走页面级复用 WebSocket。页面创建的原生 WebSocket 使用独立隧道，已验证文本/二进制帧和子协议兼容。具体限制见 `docs/compatibility.md`。
+注入运行时会 Hook URL 与导航行为；Fetch、XHR、SSE 和 Beacon 强制走页面级复用 WebSocket。页面创建的原生 WebSocket 使用独立隧道，已验证文本/二进制帧和子协议兼容。网址框旁提供默认关闭的兼容模式，用于需要多 Origin CORS 映射和动态资源限流的页面。具体限制见 `docs/compatibility.md`。
 
 Web 界面提供登录、浏览器式地址栏、出口选择与内嵌代理页面。管理员可在同一界面维护本地用户、用户/LDAP 组策略、HTTP/SOCKS5 上游代理、LDAP 参数和审计日志；前端请求统一声明在 `web/src/api/client.ts`。
 

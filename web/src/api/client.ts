@@ -15,7 +15,7 @@ export type Rule = { id?: string; kind: 'exact_host' | 'domain_suffix' | 'cidr' 
 export type Policy = { id: string; name: string; description: string; mode: PolicyMode; enabled: boolean; rules: Rule[] }
 export type PolicyMode = 'deny_all' | 'deny_intranet' | 'whitelist' | 'blacklist'
 export type PolicyInput = Omit<Policy, 'id'>
-export type ProxyContext = { id: string; current_url: string; upstream_proxy_id?: string | null; created_at: string; last_active_at: string }
+export type ProxyContext = { id: string; current_url: string; upstream_proxy_id?: string | null; compatibility_mode: boolean; created_at: string; last_active_at: string }
 export type Navigation = { context?: ProxyContext; bootstrap_url: string; route_url: string }
 export type UpstreamProxy = {
   id: string; name: string; type: 'http' | 'socks5'; host: string; port: number; username: string
@@ -59,7 +59,7 @@ export const api = {
   login: (username: string, password: string) => request<Session>('/auth/login', { method: 'POST', body: json({ username, password }) }).then(remember),
   logout: () => request<void>('/auth/logout', { method: 'POST' }).finally(() => { csrfToken = '' }),
   availableUpstreams: () => request<{ direct_allowed: boolean; items: UpstreamProxy[] }>('/proxy/upstreams/'),
-  createContext: (url: string, upstream_proxy_id?: string) => request<Navigation>('/proxy/contexts/', { method: 'POST', body: json({ url, upstream_proxy_id: upstream_proxy_id || null }) }),
+  createContext: (url: string, upstream_proxy_id?: string, compatibility_mode = false) => request<Navigation>('/proxy/contexts/', { method: 'POST', body: json({ url, upstream_proxy_id: upstream_proxy_id || null, compatibility_mode }) }),
   navigate: (id: string, url: string) => request<Navigation>(`/proxy/contexts/${id}/navigate`, { method: 'POST', body: json({ url }) }),
   closeContext: (id: string) => request<void>(`/proxy/contexts/${id}`, { method: 'DELETE' }),
   users: () => request<{ items: User[] }>('/admin/users'),

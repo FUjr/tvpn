@@ -52,18 +52,31 @@ function Login({ onLogin }: { onLogin: (session: Session) => void }) {
 }
 
 function Browser() {
-  const [address, setAddress] = useState(''); const [contextID, setContextID] = useState(''); const [frameURL, setFrameURL] = useState(''); const [error, setError] = useState(''); const [loading, setLoading] = useState(false); const [upstreams, setUpstreams] = useState<UpstreamProxy[]>([]); const [directAllowed, setDirectAllowed] = useState<boolean>(); const [upstreamID, setUpstreamID] = useState(''); const frame = useRef<HTMLIFrameElement>(null)
-  const go = async (event?: FormEvent) => { event?.preventDefault(); if (!address.trim()) return; setLoading(true); setError(''); try { const nav = contextID ? await api.navigate(contextID, address) : await api.createContext(address, upstreamID); if (nav.context) setContextID(nav.context.id); setFrameURL(nav.bootstrap_url) } catch (e) { setError(message(e)) } finally { setLoading(false) } }
+  const [address, setAddress] = useState(''); const [contextID, setContextID] = useState(''); const [frameURL, setFrameURL] = useState(''); const [error, setError] = useState(''); const [loading, setLoading] = useState(false); const [upstreams, setUpstreams] = useState<UpstreamProxy[]>([]); const [directAllowed, setDirectAllowed] = useState<boolean>(); const [upstreamID, setUpstreamID] = useState(''); const [compatibilityMode, setCompatibilityMode] = useState(false); const frame = useRef<HTMLIFrameElement>(null)
+  const go = async (event?: FormEvent) => { event?.preventDefault(); if (!address.trim()) return; setLoading(true); setError(''); try { const nav = contextID ? await api.navigate(contextID, address) : await api.createContext(address, upstreamID, compatibilityMode); if (nav.context) setContextID(nav.context.id); setFrameURL(nav.bootstrap_url) } catch (e) { setError(message(e)) } finally { setLoading(false) } }
+  const changeCompatibilityMode = async (enabled: boolean) => {
+    setCompatibilityMode(enabled)
+    if (!contextID || !address.trim()) return
+    const previousContextID = contextID
+    setLoading(true); setError(''); setContextID(''); setFrameURL('')
+    try {
+      await api.closeContext(previousContextID).catch(() => undefined)
+      const nav = await api.createContext(address, upstreamID, enabled)
+      if (nav.context) setContextID(nav.context.id)
+      setFrameURL(nav.bootstrap_url)
+    } catch (e) { setError(message(e)) } finally { setLoading(false) }
+  }
   const command = (action: string) => frame.current?.contentWindow?.postMessage({ type: 'tvpn:command', action }, new URL(frameURL).origin)
   useEffect(() => { const receive = (event: MessageEvent) => { if (event.source !== frame.current?.contentWindow || event.data?.type !== 'tvpn:navigation') return; if (typeof event.data.url === 'string') setAddress(event.data.url) }; addEventListener('message', receive); return () => removeEventListener('message', receive) }, [])
   useEffect(() => { api.availableUpstreams().then(x => { setUpstreams(x.items); setDirectAllowed(x.direct_allowed); if (!x.direct_allowed && x.items.length) setUpstreamID(x.items[0].id) }).catch(e => setError(message(e))) }, [])
-  useEffect(() => () => { if (contextID) void api.closeContext(contextID) }, [contextID])
+  useEffect(() => () => { if (contextID) void api.closeContext(contextID).catch(() => undefined) }, [contextID])
   const noExit = directAllowed === false && upstreams.length === 0
   return <section className="browser-shell">
     <form className="browser-toolbar" onSubmit={go}>
       <div className="history-controls"><button type="button" className="icon-button" title="后退" disabled={!frameURL} onClick={() => command('back')}><ArrowLeft /></button><button type="button" className="icon-button" title="前进" disabled={!frameURL} onClick={() => command('forward')}><ArrowRight /></button><button type="button" className="icon-button" title="刷新" disabled={!frameURL} onClick={() => command('reload')}><RefreshCw className={loading ? 'spin' : ''} /></button></div>
-      <label className="upstream-selector"><Network /><select aria-label="访问出口" title="访问出口" value={upstreamID} disabled={directAllowed === undefined || noExit} onChange={e => { if (contextID) void api.closeContext(contextID); setContextID(''); setFrameURL(''); setUpstreamID(e.target.value) }}>{directAllowed && <option value="">服务端直连</option>}{noExit && <option value="">无可用出口</option>}{upstreams.map(value => <option key={value.id} value={value.id}>{value.name} · {value.type.toUpperCase()}</option>)}</select></label>
+      <label className="upstream-selector"><Network /><select aria-label="访问出口" title="访问出口" value={upstreamID} disabled={directAllowed === undefined || noExit} onChange={e => { if (contextID) void api.closeContext(contextID).catch(() => undefined); setContextID(''); setFrameURL(''); setUpstreamID(e.target.value) }}>{directAllowed && <option value="">服务端直连</option>}{noExit && <option value="">无可用出口</option>}{upstreams.map(value => <option key={value.id} value={value.id}>{value.name} · {value.type.toUpperCase()}</option>)}</select></label>
       <div className="address-field"><Globe2 /><input aria-label="网址" placeholder="输入网址或 IP 地址" value={address} onChange={e => setAddress(e.target.value)} /><button className="go-button" title="访问" disabled={loading || directAllowed === undefined || noExit || !address.trim()}><ExternalLink /></button></div>
+      <label className="compatibility-toggle" title="用于需要额外跨域兼容处理的网站"><input type="checkbox" checked={compatibilityMode} disabled={loading} onChange={e => void changeCompatibilityMode(e.target.checked)} /><span className="toggle-track" aria-hidden="true" /><span>兼容模式</span></label>
     </form>
     {error && <div className="browser-error">{error}</div>}
     <div className="viewport">{frameURL ? <iframe ref={frame} src={frameURL} title="WebVPN 页面" onLoad={() => setLoading(false)} /> : <div className="empty-browser"><Globe2 /><h1>开始安全浏览</h1><p>在上方输入已获授权的网址</p></div>}</div>

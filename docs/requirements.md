@@ -25,3 +25,4 @@
 - 被代理页面创建的 `WebSocket` 必须由运行时 Hook 并经服务端建立 `ws/wss` 隧道，兼容子协议、文本/二进制帧、关闭码、Cookie 与 Origin。
 - 允许管理域位于代理基础域之下，例如 `TVPN_APP_ORIGIN=https://vpn.proxy.example.com` 与 `TVPN_PROXY_BASE_DOMAIN=proxy.example.com`；服务端必须优先精确识别管理域，再匹配代理通配域。
 - 尽量兼容公网网站，但不承诺 WebRTC、WebTransport、DRM、浏览器扩展或任意直接 `window.location` 赋值。
+- 网址框旁提供默认关闭的兼容模式开关；该模式按浏览上下文生效，为多 Origin 页面启用 CORS 映射、动态 URL 解析限流和 Cookie 有序写入，关闭时保持原有代理行为。

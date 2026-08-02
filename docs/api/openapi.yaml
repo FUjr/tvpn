@@ -199,8 +199,19 @@ paths:
     post:
       operationId: createProxyContext
       parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url: { type: string }
+                upstream_proxy_id: { type: string, format: uuid, nullable: true }
+                compatibility_mode: { type: boolean, default: false }
       responses:
-        '201': { description: Context with the selected optional upstream_proxy_id, one-time bootstrap URL and route URL }
+        '201': { description: Context with the selected optional upstream_proxy_id and compatibility_mode, one-time bootstrap URL and route URL }
         '403': { $ref: '#/components/responses/Problem' }
   /proxy/contexts/{id}:
     get:

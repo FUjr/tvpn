@@ -74,7 +74,11 @@ func (s *Service) rewriteHTML(ctx context.Context, route Route, target *url.URL,
 	for _, cookie := range visibleCookies {
 		cookieValues = append(cookieValues, cookie.Name+"="+cookie.Value)
 	}
-	config, _ := json.Marshal(map[string]string{"appOrigin": s.appOrigin.String(), "upstreamURL": target.String(), "contextID": route.ContextID.String(), "cookies": strings.Join(cookieValues, "; ")})
+	config, _ := json.Marshal(map[string]any{
+		"appOrigin": s.appOrigin.String(), "upstreamURL": target.String(),
+		"contextID": route.ContextID.String(), "cookies": strings.Join(cookieValues, "; "),
+		"proxyBaseDomain": s.proxyBaseDomain, "compatibilityMode": route.CompatibilityMode,
+	})
 	configNode := &html.Node{Type: html.ElementNode, Data: "script"}
 	configNode.AppendChild(&html.Node{Type: html.TextNode, Data: "window.__TVPN_CONFIG__=" + string(config) + ";"})
 	runtimeNode := &html.Node{Type: html.ElementNode, Data: "script", Attr: []html.Attribute{{Key: "src", Val: "/__tvpn/runtime.js"}}}
