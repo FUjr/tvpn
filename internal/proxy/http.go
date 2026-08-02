@@ -60,12 +60,17 @@ func (s *Service) UpstreamStore() *UpstreamStore { return s.upstreams }
 
 func (s *Service) AvailableUpstreams(w http.ResponseWriter, r *http.Request) {
 	session, _ := auth.SessionFromContext(r.Context())
+	directAllowed, err := s.upstreams.DirectAllowed(r.Context(), session.User.ID)
+	if err != nil {
+		proxyInternal(w)
+		return
+	}
 	values, err := s.upstreams.Effective(r.Context(), session.User.ID)
 	if err != nil {
 		proxyInternal(w)
 		return
 	}
-	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"items": values})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"direct_allowed": directAllowed, "items": values})
 }
 
 func (s *Service) AppRoutes() http.Handler {
@@ -89,6 +94,16 @@ func (s *Service) createContext(w http.ResponseWriter, r *http.Request) {
 	if input.UpstreamProxyID != nil {
 		if _, err := s.upstreams.Authorized(r.Context(), session.User.ID, *input.UpstreamProxyID); err != nil {
 			httpapi.Problem(w, http.StatusForbidden, "upstream_proxy_denied", "未获授权或代理已停用")
+			return
+		}
+	} else {
+		allowed, err := s.upstreams.DirectAllowed(r.Context(), session.User.ID)
+		if err != nil {
+			proxyInternal(w)
+			return
+		}
+		if !allowed {
+			httpapi.Problem(w, http.StatusForbidden, "direct_access_denied", "未获授权使用服务端直连")
 			return
 		}
 	}
@@ -442,6 +457,13 @@ func (s *Service) transport(ctx context.Context, target Target, route Route) (*h
 	transport := &http.Transport{Proxy: nil, ForceAttemptHTTP2: true, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, ServerName: target.URL.Hostname()}, ResponseHeaderTimeout: 30 * time.Second, TLSHandshakeTimeout: 10 * time.Second, IdleConnTimeout: 30 * time.Second}
 	pinnedAddress := net.JoinHostPort(address.String(), strconv.Itoa(target.Port))
 	if route.UpstreamProxyID == nil {
+		allowed, err := s.upstreams.DirectAllowed(ctx, route.UserID)
+		if err != nil {
+			return nil, err
+		}
+		if !allowed {
+			return nil, errors.New("direct access authorization revoked")
+		}
 		transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
 			return dialer.DialContext(ctx, network, pinnedAddress)
 		}

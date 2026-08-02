@@ -51,6 +51,12 @@ type UpstreamStore struct {
 	cipher *Cipher
 }
 
+type DirectAccess struct {
+	Restricted bool        `json:"restricted"`
+	UserIDs    []uuid.UUID `json:"user_ids"`
+	GroupIDs   []uuid.UUID `json:"group_ids"`
+}
+
 func NewUpstreamStore(db *pgxpool.Pool, cipher *Cipher) *UpstreamStore {
 	return &UpstreamStore{db: db, cipher: cipher}
 }
@@ -175,6 +181,57 @@ func (s *UpstreamStore) Effective(ctx context.Context, userID uuid.UUID) ([]Upst
 		values = append(values, value)
 	}
 	return values, rows.Err()
+}
+
+func (s *UpstreamStore) DirectAllowed(ctx context.Context, userID uuid.UUID) (bool, error) {
+	var allowed bool
+	err := s.db.QueryRow(ctx, `SELECT NOT restricted OR
+		EXISTS(SELECT 1 FROM direct_access_users WHERE user_id=$1) OR
+		EXISTS(SELECT 1 FROM user_ldap_groups ug JOIN direct_access_ldap_groups dg ON dg.group_id=ug.group_id WHERE ug.user_id=$1)
+		FROM direct_access_settings WHERE singleton=true`, userID).Scan(&allowed)
+	return allowed, err
+}
+
+func (s *UpstreamStore) DirectAccess(ctx context.Context) (DirectAccess, error) {
+	value := DirectAccess{UserIDs: []uuid.UUID{}, GroupIDs: []uuid.UUID{}}
+	if err := s.db.QueryRow(ctx, `SELECT restricted FROM direct_access_settings WHERE singleton=true`).Scan(&value.Restricted); err != nil {
+		return DirectAccess{}, err
+	}
+	userRows, err := s.db.Query(ctx, `SELECT user_id FROM direct_access_users ORDER BY user_id`)
+	if err != nil {
+		return DirectAccess{}, err
+	}
+	for userRows.Next() {
+		var id uuid.UUID
+		if err := userRows.Scan(&id); err != nil {
+			userRows.Close()
+			return DirectAccess{}, err
+		}
+		value.UserIDs = append(value.UserIDs, id)
+	}
+	if err := userRows.Err(); err != nil {
+		userRows.Close()
+		return DirectAccess{}, err
+	}
+	userRows.Close()
+	groupRows, err := s.db.Query(ctx, `SELECT group_id FROM direct_access_ldap_groups ORDER BY group_id`)
+	if err != nil {
+		return DirectAccess{}, err
+	}
+	defer groupRows.Close()
+	for groupRows.Next() {
+		var id uuid.UUID
+		if err := groupRows.Scan(&id); err != nil {
+			return DirectAccess{}, err
+		}
+		value.GroupIDs = append(value.GroupIDs, id)
+	}
+	return value, groupRows.Err()
+}
+
+func (s *UpstreamStore) SetDirectRestricted(ctx context.Context, restricted bool) error {
+	_, err := s.db.Exec(ctx, `UPDATE direct_access_settings SET restricted=$1,updated_at=now() WHERE singleton=true`, restricted)
+	return err
 }
 
 func (s *UpstreamStore) Authorized(ctx context.Context, userID, id uuid.UUID) (*Upstream, error) {

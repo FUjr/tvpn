@@ -32,3 +32,8 @@
 - `upstream_proxies`：保存 HTTP/SOCKS5 代理地址、状态和可选用户名；密码使用 `TVPN_MASTER_KEY_FILE` 加密，接口只返回是否已配置。
 - `user_upstream_proxies`、`ldap_group_upstream_proxies`：分别保存用户和 LDAP 组授权，用户有效列表取两者并集。
 - `proxy_contexts.upstream_proxy_id`：固定该浏览上下文选择的出口；空值表示服务端直连。删除代理会同时关闭并删除引用它的上下文。
+
+## 006 服务端直连 ACL
+
+- `direct_access_settings`：单行保存直连是否启用 ACL；默认关闭 ACL，升级后继续允许全部用户直连。
+- `direct_access_users`、`direct_access_ldap_groups`：保存直连的用户和 LDAP 组授权。启用 ACL 后用户满足任一授权即可使用直连，空授权表示无人可直连。

@@ -51,6 +51,10 @@ func (h *HTTP) Routes() http.Handler {
 	r.Delete("/upstream-proxies/{id}", h.deleteUpstreamProxy)
 	r.Put("/upstream-proxies/{id}/users", h.setUpstreamProxyUsers)
 	r.Put("/upstream-proxies/{id}/groups", h.setUpstreamProxyGroups)
+	r.Get("/direct-access", h.getDirectAccess)
+	r.Put("/direct-access", h.updateDirectAccess)
+	r.Put("/direct-access/users", h.setDirectAccessUsers)
+	r.Put("/direct-access/groups", h.setDirectAccessGroups)
 	r.Get("/audit", h.listAudit)
 	return r
 }
@@ -510,6 +514,51 @@ func (h *HTTP) setUpstreamAssignments(w http.ResponseWriter, r *http.Request, ta
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *HTTP) getDirectAccess(w http.ResponseWriter, r *http.Request) {
+	value, err := h.upstreams.DirectAccess(r.Context())
+	if err != nil {
+		internal(w)
+		return
+	}
+	httpapi.WriteJSON(w, http.StatusOK, value)
+}
+
+func (h *HTTP) updateDirectAccess(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Restricted bool `json:"restricted"`
+	}
+	if !httpapi.DecodeJSON(w, r, &input) {
+		return
+	}
+	if err := h.upstreams.SetDirectRestricted(r.Context(), input.Restricted); err != nil {
+		internal(w)
+		return
+	}
+	h.audit(r, "direct_access.update", "success", "direct", map[string]any{"restricted": input.Restricted})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *HTTP) setDirectAccessUsers(w http.ResponseWriter, r *http.Request) {
+	h.setDirectAssignments(w, r, "direct_access_users", "user_id", "direct_access.users")
+}
+
+func (h *HTTP) setDirectAccessGroups(w http.ResponseWriter, r *http.Request) {
+	h.setDirectAssignments(w, r, "direct_access_ldap_groups", "group_id", "direct_access.groups")
+}
+
+func (h *HTTP) setDirectAssignments(w http.ResponseWriter, r *http.Request, table, column, eventType string) {
+	var input resourceAssignment
+	if !httpapi.DecodeJSON(w, r, &input) {
+		return
+	}
+	if err := replaceDirectAssignments(r.Context(), h.db, table, column, input.IDs); err != nil {
+		httpapi.Problem(w, http.StatusUnprocessableEntity, "invalid_assignment", err.Error())
+		return
+	}
+	h.audit(r, eventType, "success", "direct", map[string]any{"count": len(input.IDs)})
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *HTTP) listAudit(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(r.Context(), `SELECT id,actor_user_id,event_type,outcome,target,detail,created_at FROM audit_events ORDER BY id DESC LIMIT 200`)
 	if err != nil {
@@ -580,6 +629,26 @@ func replaceResourceAssignments(ctx context.Context, db *pgxpool.Pool, table, co
 	}
 	for _, id := range ids {
 		if _, err = tx.Exec(ctx, "INSERT INTO "+table+" ("+column+",upstream_proxy_id) VALUES ($1,$2)", id, proxyID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func replaceDirectAssignments(ctx context.Context, db *pgxpool.Pool, table, column string, ids []uuid.UUID) error {
+	if (table != "direct_access_users" || column != "user_id") && (table != "direct_access_ldap_groups" || column != "group_id") {
+		return errors.New("invalid assignment table")
+	}
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, "DELETE FROM "+table); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if _, err = tx.Exec(ctx, "INSERT INTO "+table+" ("+column+") VALUES ($1)", id); err != nil {
 			return err
 		}
 	}

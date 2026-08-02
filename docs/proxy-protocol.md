@@ -7,7 +7,7 @@
 
 服务端保留请求方法和流式正文，删除 hop-by-hop 与 `X-Forwarded-*` 头，重建上游 Host、Origin、Referer 和 Cookie。响应侧保存并移除上游 `Set-Cookie`，重写 `Location`，删除阻止嵌入的 frame/CSP 响应头，并流式返回正文。
 
-每个浏览上下文固定为服务端直连、HTTP 上游代理或 SOCKS5 上游代理之一。HTTP 代理对 HTTP 与 HTTPS 目标都先建立 CONNECT 隧道；SOCKS5 和 CONNECT 的目标均为 Tvpn 已解析、检查的 IP 和端口，原始域名只用于 HTTP Host 与 TLS SNI。页面 HTTP、多路复用请求和原生 WebSocket 共用同一出口选择。
+每个浏览上下文固定为服务端直连、HTTP 上游代理或 SOCKS5 上游代理之一。服务端直连可由管理员启用用户/LDAP 组 ACL，未获授权时不能创建直连上下文或建立直连套接字。HTTP 代理对 HTTP 与 HTTPS 目标都先建立 CONNECT 隧道；SOCKS5 和 CONNECT 的目标均为 Tvpn 已解析、检查的 IP 和端口，原始域名只用于 HTTP Host 与 TLS SNI。页面 HTTP、多路复用请求和原生 WebSocket 共用同一出口选择。
 
 ## 注入运行时
 

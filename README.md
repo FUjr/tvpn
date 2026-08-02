@@ -12,7 +12,7 @@ LDAP 登录支持 LDAPS/StartTLS、搜索绑定或 DN 模板，并在登录成�
 
 要允许用户访问任意公网 HTTP/HTTPS 网站，可创建一个规则为空的“禁止内网”策略并分配给该用户；云元数据地址和 Tvpn 控制域始终不可作为代理目标。
 
-WebVPN 转发已实现独立 Origin 路由、一次性 bootstrap、请求级策略和 DNS 重绑定防护、重定向改写，以及 AES-256-GCM 加密的服务端 Cookie Jar。管理员可以维护带可选认证的 HTTP 或 SOCKS5 上游代理并授权给用户或 LDAP 组；用户浏览前可选择获授权的出口，也可以保持服务端直连。
+WebVPN 转发已实现独立 Origin 路由、一次性 bootstrap、请求级策略和 DNS 重绑定防护、重定向改写，以及 AES-256-GCM 加密的服务端 Cookie Jar。管理员可以维护带可选认证的 HTTP 或 SOCKS5 上游代理并授权给用户或 LDAP 组；服务端直连也可启用独立 ACL，从而让指定用户只能使用代理出口。
 
 注入运行时会 Hook URL 与导航行为；Fetch、XHR、SSE 和 Beacon 强制走页面级复用 WebSocket。页面创建的原生 WebSocket 使用独立隧道，已验证文本/二进制帧和子协议兼容。具体限制见 `docs/compatibility.md`。
 

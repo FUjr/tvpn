@@ -23,6 +23,7 @@ export type UpstreamProxy = {
   user_ids?: string[]; group_ids?: string[]
 }
 export type UpstreamProxyInput = Pick<UpstreamProxy, 'name' | 'type' | 'host' | 'port' | 'username' | 'enabled'> & { password: string; clear_password?: boolean }
+export type DirectAccess = { restricted: boolean; user_ids: string[]; group_ids: string[] }
 export type LDAPSettings = {
   enabled: boolean; mode: string; url: string; start_tls: boolean; base_dn: string; bind_dn: string
   user_filter: string; user_dn_template: string; username_attribute: string; display_name_attribute: string
@@ -57,7 +58,7 @@ export const api = {
   session: () => request<Session>('/auth/session').then(remember),
   login: (username: string, password: string) => request<Session>('/auth/login', { method: 'POST', body: json({ username, password }) }).then(remember),
   logout: () => request<void>('/auth/logout', { method: 'POST' }).finally(() => { csrfToken = '' }),
-  availableUpstreams: () => request<{ items: UpstreamProxy[] }>('/proxy/upstreams/'),
+  availableUpstreams: () => request<{ direct_allowed: boolean; items: UpstreamProxy[] }>('/proxy/upstreams/'),
   createContext: (url: string, upstream_proxy_id?: string) => request<Navigation>('/proxy/contexts/', { method: 'POST', body: json({ url, upstream_proxy_id: upstream_proxy_id || null }) }),
   navigate: (id: string, url: string) => request<Navigation>(`/proxy/contexts/${id}/navigate`, { method: 'POST', body: json({ url }) }),
   closeContext: (id: string) => request<void>(`/proxy/contexts/${id}`, { method: 'DELETE' }),
@@ -81,5 +82,9 @@ export const api = {
   deleteUpstream: (id: string) => request<void>(`/admin/upstream-proxies/${id}`, { method: 'DELETE' }),
   setUpstreamUsers: (id: string, ids: string[]) => request<void>(`/admin/upstream-proxies/${id}/users`, { method: 'PUT', body: json({ ids }) }),
   setUpstreamGroups: (id: string, ids: string[]) => request<void>(`/admin/upstream-proxies/${id}/groups`, { method: 'PUT', body: json({ ids }) }),
+  directAccess: () => request<DirectAccess>('/admin/direct-access'),
+  updateDirectAccess: (restricted: boolean) => request<void>('/admin/direct-access', { method: 'PUT', body: json({ restricted }) }),
+  setDirectAccessUsers: (ids: string[]) => request<void>('/admin/direct-access/users', { method: 'PUT', body: json({ ids }) }),
+  setDirectAccessGroups: (ids: string[]) => request<void>('/admin/direct-access/groups', { method: 'PUT', body: json({ ids }) }),
   audit: () => request<{ items: AuditEvent[] }>('/admin/audit'),
 }

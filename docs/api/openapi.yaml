@@ -168,11 +168,33 @@ paths:
         - { $ref: '#/components/parameters/CSRF' }
       responses:
         '204': { description: LDAP group assignments replaced }
+  /admin/direct-access:
+    get:
+      operationId: getDirectAccessACL
+      responses:
+        '200': { description: Direct access restriction state and assigned user and LDAP group IDs }
+    put:
+      operationId: updateDirectAccessACL
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      responses:
+        '204': { description: Direct access ACL enabled or disabled }
+  /admin/direct-access/users:
+    put:
+      operationId: setDirectAccessUsers
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      responses:
+        '204': { description: Direct access user assignments replaced }
+  /admin/direct-access/groups:
+    put:
+      operationId: setDirectAccessLDAPGroups
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      responses:
+        '204': { description: Direct access LDAP group assignments replaced }
   /proxy/upstreams/:
     get:
       operationId: listAvailableUpstreamProxies
       responses:
-        '200': { description: Enabled upstream proxies granted directly or through current LDAP groups; direct mode is implicit }
+        '200': { description: Enabled granted upstream proxies and whether the current user may use direct access }
   /proxy/contexts/:
     post:
       operationId: createProxyContext
