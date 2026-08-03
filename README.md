@@ -34,7 +34,7 @@ Web 界面提供登录、浏览器式地址栏、出口选择与内嵌代理页�
 
 公网部署可复制 `.env.example`，通过 `.env` 传入 HTTPS 管理域、代理通配域、监听地址和数据库密码。管理域可部署在代理基础域之下，例如 `vpn.proxy.example.com` 与 `proxy.example.com`，从而共用 `*.proxy.example.com` 的 DNS 和证书；Docker Compose 与 Nginx 完整示例见 `docs/deployment.md`。
 
-默认生产示例从阿里云杭州区拉取 `fjrcn/tvpn` 和 `fjrcn/tvpn-pg`，镜像地址同样可在 `.env` 中覆盖；本地开发不配置时仍使用源码构建和官方 PostgreSQL 镜像。
+默认生产示例从阿里云杭州区拉取 `fjrcn/tvpn` 和 `fjrcn/tvpn-pg`，镜像地址同样可在 `.env` 中覆盖；应用镜像由 GitHub Actions 同步发布到阿里云 ACR 和 `ghcr.io/fujr/tvpn`，支持 `linux/amd64` 与 `linux/arm64`。本地开发不配置时仍使用源码构建和官方 PostgreSQL 镜像。
 
 ## 验证
 

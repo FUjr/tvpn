@@ -37,7 +37,12 @@ docker compose pull
 docker compose up -d --no-build
 ```
 
-`.env.example` 默认从阿里云杭州区 `fjrcn` 命名空间拉取 Tvpn 和 PostgreSQL 镜像。当前发布平台为 `linux/amd64`；其他架构需要改用对应平台镜像或在目标机执行 `docker compose up -d --build` 从源码构建。
+`.env.example` 默认从阿里云杭州区 `fjrcn` 命名空间拉取 Tvpn 和 PostgreSQL 镜像。Tvpn 在 `main` 分支 CI 通过后会同时发布 `linux/amd64` 和 `linux/arm64` 镜像：
+
+- `ghcr.io/fujr/tvpn:latest`
+- `registry.cn-hangzhou.aliyuncs.com/fjrcn/tvpn:latest`
+
+每次发布还会生成一个七位 Git 提交哈希标签，便于生产环境固定版本。GitHub Actions 使用仓库的 `GITHUB_TOKEN` 推送 GHCR，并通过 `ALI_ACR_USERNAME`、`ALI_ACR_PASSWORD` 两个 GitHub Actions Secret 登录 ACR；凭据不得写入仓库、Compose 文件或构建参数。
 
 `TVPN_POSTGRES_PASSWORD` 必须在 PostgreSQL 卷首次初始化前确定。已有数据卷不会因为修改 `.env` 自动更改数据库用户密码；这种情况下需要先在 PostgreSQL 内执行密码变更，再同步修改 `.env`。
 
