@@ -1,13 +1,17 @@
 openapi: 3.1.0
 info:
   title: Tvpn API
-  version: 0.1.0
+  version: 0.2.0
 servers:
   - url: /api/v1
+security:
+  - sessionCookie: []
+  - bearerToken: []
 paths:
   /auth/login:
     post:
       operationId: login
+      security: []
       requestBody:
         required: true
         content:
@@ -30,10 +34,49 @@ paths:
   /auth/logout:
     post:
       operationId: logout
+      security: [{ sessionCookie: [] }]
       parameters:
         - $ref: '#/components/parameters/CSRF'
       responses:
         '204': { description: Session removed }
+  /auth/tokens/:
+    get:
+      operationId: listProgramTokens
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200': { description: Active token metadata; secrets are never returned }
+    post:
+      operationId: createProgramToken
+      security: [{ sessionCookie: [] }]
+      parameters: [{ $ref: '#/components/parameters/CSRF' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, scopes]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 100 }
+                scopes:
+                  type: array
+                  minItems: 1
+                  uniqueItems: true
+                  items: { type: string, enum: [proxy, admin] }
+                expires_at: { type: string, format: date-time, description: Defaults to 90 days and cannot exceed 366 days }
+      responses:
+        '201': { description: Token metadata and the one-time secret }
+        '422': { $ref: '#/components/responses/Problem' }
+  /auth/tokens/{id}:
+    delete:
+      operationId: revokeProgramToken
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/ID' }
+        - { $ref: '#/components/parameters/CSRF' }
+      responses:
+        '204': { description: Token revoked }
+        '404': { $ref: '#/components/responses/Problem' }
   /admin/users:
     get:
       operationId: listUsers
@@ -236,6 +279,21 @@ paths:
         '200': { description: New one-time bootstrap URL and route URL }
         '403': { $ref: '#/components/responses/Problem' }
 components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-tvpn_session
+    bearerToken:
+      type: http
+      scheme: bearer
+      bearerFormat: tvpn_pat
+      description: Program token for management APIs. Proxy endpoints require the proxy scope; admin endpoints require admin scope and an administrator owner.
+    proxyBearerToken:
+      type: apiKey
+      in: header
+      name: Proxy-Authorization
+      description: Use `Bearer tvpn_pat_...` on route_url. Tvpn consumes this header and never forwards it upstream.
   parameters:
     CSRF:
       in: header
@@ -250,13 +308,20 @@ components:
   responses:
     Problem:
       description: RFC 9457 compatible error
+      headers:
+        Tvpn-Error-Code:
+          required: true
+          description: Protected marker used by SDKs to distinguish Tvpn failures from target RFC Problem responses
+          schema: { type: string }
       content:
         application/problem+json:
           schema:
             type: object
-            required: [type, title, status, detail]
+            required: [type, title, status, code, message_id, message]
             properties:
               type: { type: string, format: uri }
               title: { type: string }
               status: { type: integer }
-              detail: { type: string }
+              code: { type: string }
+              message_id: { type: string }
+              message: { type: string }

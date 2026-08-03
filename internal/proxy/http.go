@@ -62,12 +62,12 @@ func (s *Service) AvailableUpstreams(w http.ResponseWriter, r *http.Request) {
 	session, _ := auth.SessionFromContext(r.Context())
 	directAllowed, err := s.upstreams.DirectAllowed(r.Context(), session.User.ID)
 	if err != nil {
-		proxyInternal(w)
+		proxyInternal(w, r)
 		return
 	}
 	values, err := s.upstreams.Effective(r.Context(), session.User.ID)
 	if err != nil {
-		proxyInternal(w)
+		proxyInternal(w, r)
 		return
 	}
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"direct_allowed": directAllowed, "items": values})
@@ -94,53 +94,53 @@ func (s *Service) createContext(w http.ResponseWriter, r *http.Request) {
 	session, _ := auth.SessionFromContext(r.Context())
 	if input.UpstreamProxyID != nil {
 		if _, err := s.upstreams.Authorized(r.Context(), session.User.ID, *input.UpstreamProxyID); err != nil {
-			httpapi.Problem(w, http.StatusForbidden, "upstream_proxy_denied", "未获授权或代理已停用")
+			httpapi.Problem(w, r, httpapi.ErrUpstreamProxyDenied)
 			return
 		}
 	} else {
 		allowed, err := s.upstreams.DirectAllowed(r.Context(), session.User.ID)
 		if err != nil {
-			proxyInternal(w)
+			proxyInternal(w, r)
 			return
 		}
 		if !allowed {
-			httpapi.Problem(w, http.StatusForbidden, "direct_access_denied", "未获授权使用服务端直连")
+			httpapi.Problem(w, r, httpapi.ErrDirectAccessDenied)
 			return
 		}
 	}
 	target, decision, err := s.authorize(r.Context(), session.User.ID, input.URL)
 	if err != nil {
-		httpapi.Problem(w, http.StatusUnprocessableEntity, "invalid_target", err.Error())
+		httpapi.Problem(w, r, httpapi.ErrInvalidTarget)
 		return
 	}
 	if !decision.Allowed {
 		s.audit(r.Context(), session.User.ID, "proxy.denied", input.URL, "denied")
-		httpapi.Problem(w, http.StatusForbidden, "target_denied", "访问策略拒绝该目标")
+		httpapi.Problem(w, r, httpapi.ErrTargetDenied)
 		return
 	}
 	contextValue, route, ticket, err := s.store.CreateContext(r.Context(), session.User.ID, target.URL, input.UpstreamProxyID, input.CompatibilityMode)
 	if err != nil {
-		proxyInternal(w)
+		proxyInternal(w, r)
 		return
 	}
 	s.audit(r.Context(), session.User.ID, "proxy.context.create", target.URL.String(), "success")
 	httpapi.WriteJSON(w, http.StatusCreated, map[string]any{"context": contextValue, "bootstrap_url": s.bootstrapURL(ticket), "route_url": s.routeURL(route, target.URL)})
 }
 func (s *Service) getContext(w http.ResponseWriter, r *http.Request) {
-	id, ok := proxyID(w, chi.URLParam(r, "id"))
+	id, ok := proxyID(w, r, chi.URLParam(r, "id"))
 	if !ok {
 		return
 	}
 	session, _ := auth.SessionFromContext(r.Context())
 	value, err := s.store.Context(r.Context(), id, session.User.ID)
 	if err != nil {
-		httpapi.Problem(w, http.StatusNotFound, "context_not_found", "代理上下文不存在")
+		httpapi.Problem(w, r, httpapi.ErrContextNotFound)
 		return
 	}
 	httpapi.WriteJSON(w, http.StatusOK, value)
 }
 func (s *Service) navigate(w http.ResponseWriter, r *http.Request) {
-	id, ok := proxyID(w, chi.URLParam(r, "id"))
+	id, ok := proxyID(w, r, chi.URLParam(r, "id"))
 	if !ok {
 		return
 	}
@@ -152,41 +152,41 @@ func (s *Service) navigate(w http.ResponseWriter, r *http.Request) {
 	}
 	session, _ := auth.SessionFromContext(r.Context())
 	if _, err := s.store.Context(r.Context(), id, session.User.ID); err != nil {
-		httpapi.Problem(w, http.StatusNotFound, "context_not_found", "代理上下文不存在")
+		httpapi.Problem(w, r, httpapi.ErrContextNotFound)
 		return
 	}
 	target, decision, err := s.authorize(r.Context(), session.User.ID, input.URL)
 	if err != nil {
-		httpapi.Problem(w, http.StatusUnprocessableEntity, "invalid_target", err.Error())
+		httpapi.Problem(w, r, httpapi.ErrInvalidTarget)
 		return
 	}
 	if !decision.Allowed {
 		s.audit(r.Context(), session.User.ID, "proxy.denied", input.URL, "denied")
-		httpapi.Problem(w, http.StatusForbidden, "target_denied", "访问策略拒绝该目标")
+		httpapi.Problem(w, r, httpapi.ErrTargetDenied)
 		return
 	}
 	route, err := s.store.ResolveRoute(r.Context(), id, session.User.ID, target.URL)
 	if err != nil {
-		proxyInternal(w)
+		proxyInternal(w, r)
 		return
 	}
 	s.store.UpdateCurrentURL(r.Context(), id, target.URL.String())
 	ticket, err := s.store.CreateTicket(r.Context(), session.User.ID, id)
 	if err != nil {
-		proxyInternal(w)
+		proxyInternal(w, r)
 		return
 	}
 	s.audit(r.Context(), session.User.ID, "proxy.navigate", target.URL.String(), "allowed")
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"bootstrap_url": s.bootstrapURL(ticket), "route_url": s.routeURL(route, target.URL)})
 }
 func (s *Service) closeContext(w http.ResponseWriter, r *http.Request) {
-	id, ok := proxyID(w, chi.URLParam(r, "id"))
+	id, ok := proxyID(w, r, chi.URLParam(r, "id"))
 	if !ok {
 		return
 	}
 	session, _ := auth.SessionFromContext(r.Context())
 	if err := s.store.CloseContext(r.Context(), id, session.User.ID); err != nil {
-		httpapi.Problem(w, http.StatusNotFound, "context_not_found", "代理上下文不存在")
+		httpapi.Problem(w, r, httpapi.ErrContextNotFound)
 		return
 	}
 	s.audit(r.Context(), session.User.ID, "proxy.context.close", id.String(), "success")
@@ -202,38 +202,49 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	suffix := "." + base
 	if !strings.HasSuffix(host, suffix) {
-		http.NotFound(w, r)
+		httpapi.Problem(w, r, httpapi.ErrRouteNotFound)
 		return
 	}
 	label := strings.TrimSuffix(host, suffix)
 	if strings.Contains(label, ".") {
-		http.NotFound(w, r)
+		httpapi.Problem(w, r, httpapi.ErrRouteNotFound)
 		return
 	}
 	route, err := s.store.RouteByLabel(r.Context(), label)
 	if err != nil {
-		httpapi.Problem(w, http.StatusNotFound, "route_not_found", "代理路由不存在")
+		httpapi.Problem(w, r, httpapi.ErrRouteNotFound)
 		return
 	}
-	cookie, err := r.Cookie(proxyCookieName)
 	authenticated := false
-	if err == nil {
+	if header := r.Header.Get("Proxy-Authorization"); header != "" {
+		token, ok := proxyBearerToken(header)
+		session, tokenErr := s.authStore.SessionByProgramToken(r.Context(), token)
+		if !ok || tokenErr != nil || !session.Scopes[auth.ScopeProxy] || session.User.ID != route.UserID {
+			w.Header().Set("Proxy-Authenticate", `Bearer realm="tvpn"`)
+			httpapi.Problem(w, r, httpapi.ErrProxyAuthentication)
+			return
+		}
+		authenticated = true
+	}
+	cookie, err := r.Cookie(proxyCookieName)
+	if !authenticated && err == nil {
 		userID, authErr := s.store.AuthenticateProxy(r.Context(), cookie.Value)
 		authenticated = authErr == nil && userID == route.UserID
 	}
 	compatibilityAllowed := s.compatibilityRequestAllowed(r, route)
-	if err != nil && !compatibilityAllowed {
-		httpapi.Problem(w, http.StatusUnauthorized, "proxy_session_required", "代理会话不存在")
+	if !authenticated && err != nil && !compatibilityAllowed {
+		w.Header().Set("Proxy-Authenticate", `Bearer realm="tvpn"`)
+		httpapi.Problem(w, r, httpapi.ErrProxyAuthentication)
 		return
 	}
 	if !authenticated && !compatibilityAllowed {
-		httpapi.Problem(w, http.StatusUnauthorized, "proxy_session_invalid", "代理会话已失效")
+		httpapi.Problem(w, r, httpapi.ErrProxySessionInvalid)
 		return
 	}
 	switch r.URL.Path {
 	case "/__tvpn/runtime.js":
 		if r.Method != http.MethodGet {
-			w.WriteHeader(http.StatusMethodNotAllowed)
+			httpapi.Problem(w, r, httpapi.ErrMethodNotAllowed)
 			return
 		}
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
@@ -256,6 +267,14 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.forward(w, r, route)
 }
 
+func proxyBearerToken(value string) (string, bool) {
+	parts := strings.Fields(value)
+	if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") && parts[1] != "" {
+		return parts[1], true
+	}
+	return "", false
+}
+
 func (s *Service) compatibilityRequestAllowed(r *http.Request, route Route) bool {
 	if !route.CompatibilityMode || strings.HasPrefix(r.URL.Path, "/__tvpn/") {
 		return false
@@ -274,7 +293,7 @@ func (s *Service) compatibilityRequestAllowed(r *http.Request, route Route) bool
 
 func (s *Service) setDocumentCookie(w http.ResponseWriter, r *http.Request, route Route) {
 	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
+		httpapi.Problem(w, r, httpapi.ErrMethodNotAllowed)
 		return
 	}
 	var input struct {
@@ -285,17 +304,17 @@ func (s *Service) setDocumentCookie(w http.ResponseWriter, r *http.Request, rout
 	}
 	cookie, err := http.ParseSetCookie(input.Cookie)
 	if err != nil || cookie.HttpOnly {
-		httpapi.Problem(w, http.StatusUnprocessableEntity, "invalid_cookie", "Cookie 格式无效")
+		httpapi.Problem(w, r, httpapi.ErrInvalidCookie)
 		return
 	}
 	cookie.HttpOnly = false
 	target, err := url.Parse(route.Scheme + "://" + hostWithPort(route.Host, route.Port, route.Scheme) + r.Header.Get("X-Tvpn-Upstream-Path"))
 	if err != nil {
-		proxyInternal(w)
+		proxyInternal(w, r)
 		return
 	}
 	if err := s.store.SaveCookies(r.Context(), s.cipher, route.ContextID, target, []*http.Cookie{cookie}); err != nil {
-		proxyInternal(w)
+		proxyInternal(w, r)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -303,7 +322,7 @@ func (s *Service) setDocumentCookie(w http.ResponseWriter, r *http.Request, rout
 
 func (s *Service) resolveURL(w http.ResponseWriter, r *http.Request, route Route) {
 	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
+		httpapi.Problem(w, r, httpapi.ErrMethodNotAllowed)
 		return
 	}
 	var input struct {
@@ -315,17 +334,17 @@ func (s *Service) resolveURL(w http.ResponseWriter, r *http.Request, route Route
 	input.URL = s.normalizeClientURL(r.Context(), route, input.URL)
 	target, decision, err := s.authorize(r.Context(), route.UserID, input.URL)
 	if err != nil {
-		httpapi.Problem(w, http.StatusUnprocessableEntity, "invalid_target", "目标 URL 无效")
+		httpapi.Problem(w, r, httpapi.ErrInvalidTarget)
 		return
 	}
 	if !decision.Allowed {
 		s.audit(r.Context(), route.UserID, "proxy.denied", input.URL, "denied")
-		httpapi.Problem(w, http.StatusForbidden, "target_denied", "访问策略拒绝该目标")
+		httpapi.Problem(w, r, httpapi.ErrTargetDenied)
 		return
 	}
 	mapped, err := s.store.ResolveRoute(r.Context(), route.ContextID, route.UserID, target.URL)
 	if err != nil {
-		proxyInternal(w)
+		proxyInternal(w, r)
 		return
 	}
 	httpapi.WriteJSON(w, http.StatusOK, map[string]string{"url": s.routeURL(mapped, target.URL)})
@@ -335,22 +354,22 @@ func (s *Service) bootstrap(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("ticket")
 	sessionToken, userID, contextID, err := s.store.ConsumeTicket(r.Context(), token, s.sessionTTL)
 	if err != nil {
-		httpapi.Problem(w, http.StatusUnauthorized, "invalid_ticket", "代理票据无效或已使用")
+		httpapi.Problem(w, r, httpapi.ErrInvalidTicket)
 		return
 	}
 	contextValue, err := s.store.Context(r.Context(), contextID, userID)
 	if err != nil {
-		proxyInternal(w)
+		proxyInternal(w, r)
 		return
 	}
 	target, err := s.guard.Resolve(r.Context(), contextValue.CurrentURL)
 	if err != nil {
-		proxyInternal(w)
+		proxyInternal(w, r)
 		return
 	}
 	route, err := s.store.ResolveRoute(r.Context(), contextID, userID, target.URL)
 	if err != nil {
-		proxyInternal(w)
+		proxyInternal(w, r)
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: proxyCookieName, Value: sessionToken, Path: "/", Domain: "." + hostname(s.proxyBaseDomain), Expires: time.Now().Add(s.sessionTTL), MaxAge: int(s.sessionTTL.Seconds()), HttpOnly: true, Secure: s.secure, SameSite: http.SameSiteLaxMode})
@@ -364,12 +383,12 @@ func (s *Service) forward(w http.ResponseWriter, r *http.Request, route Route) {
 	}
 	target, decision, err := s.authorize(r.Context(), route.UserID, raw)
 	if err != nil {
-		httpapi.Problem(w, http.StatusBadGateway, "target_unavailable", "目标地址不可用")
+		httpapi.Problem(w, r, httpapi.ErrTargetUnavailable)
 		return
 	}
 	if !decision.Allowed {
 		s.audit(r.Context(), route.UserID, "proxy.denied", target.URL.String(), "denied")
-		httpapi.Problem(w, http.StatusForbidden, "target_denied", "访问策略拒绝该请求")
+		httpapi.Problem(w, r, httpapi.ErrTargetDenied)
 		return
 	}
 	out := r.Clone(r.Context())
@@ -383,6 +402,7 @@ func (s *Service) forward(w http.ResponseWriter, r *http.Request, route Route) {
 	out.Header.Del("X-Forwarded-For")
 	out.Header.Del("X-Forwarded-Host")
 	out.Header.Del("X-Forwarded-Proto")
+	out.Header.Del("Tvpn-Error-Code")
 	browserOrigin := out.Header.Get("Origin")
 	upstreamOrigin := ""
 	if browserOrigin != "" {
@@ -410,7 +430,7 @@ func (s *Service) forward(w http.ResponseWriter, r *http.Request, route Route) {
 	}
 	cookies, err := s.store.Cookies(r.Context(), s.cipher, route.ContextID, target.URL)
 	if err != nil {
-		proxyInternal(w)
+		proxyInternal(w, r)
 		return
 	}
 	for _, cookie := range cookies {
@@ -418,18 +438,18 @@ func (s *Service) forward(w http.ResponseWriter, r *http.Request, route Route) {
 	}
 	transport, err := s.transport(r.Context(), target, route)
 	if err != nil {
-		httpapi.Problem(w, http.StatusBadGateway, "upstream_proxy_unavailable", "上游代理不可用或授权已撤销")
+		httpapi.Problem(w, r, httpapi.ErrUpstreamProxyUnavailable)
 		return
 	}
 	response, err := transport.RoundTrip(out)
 	if err != nil {
-		httpapi.Problem(w, http.StatusBadGateway, "upstream_error", "连接目标站点失败")
+		httpapi.Problem(w, r, httpapi.ErrUpstreamError)
 		return
 	}
 	defer response.Body.Close()
 	defer transport.CloseIdleConnections()
 	if err := s.store.SaveCookies(r.Context(), s.cipher, route.ContextID, target.URL, response.Cookies()); err != nil {
-		proxyInternal(w)
+		proxyInternal(w, r)
 		return
 	}
 	if location := response.Header.Get("Location"); location != "" {
@@ -437,12 +457,12 @@ func (s *Service) forward(w http.ResponseWriter, r *http.Request, route Route) {
 		if err == nil {
 			redirect, redirectDecision, resolveErr := s.authorize(r.Context(), route.UserID, resolved.String())
 			if resolveErr != nil || !redirectDecision.Allowed {
-				httpapi.Problem(w, http.StatusForbidden, "redirect_denied", "访问策略拒绝重定向目标")
+				httpapi.Problem(w, r, httpapi.ErrRedirectDenied)
 				return
 			}
 			redirectRoute, routeErr := s.store.ResolveRoute(r.Context(), route.ContextID, route.UserID, redirect.URL)
 			if routeErr != nil {
-				proxyInternal(w)
+				proxyInternal(w, r)
 				return
 			}
 			response.Header.Set("Location", s.routeURL(redirectRoute, redirect.URL))
@@ -454,7 +474,7 @@ func (s *Service) forward(w http.ResponseWriter, r *http.Request, route Route) {
 	if response.StatusCode >= 200 && response.StatusCode < 300 && (strings.Contains(strings.ToLower(contentType), "text/html") || strings.Contains(strings.ToLower(contentType), "text/css")) {
 		rewritten, rewriteErr := s.rewriteResponse(r.Context(), route, target.URL, contentType, response.Body)
 		if rewriteErr != nil {
-			httpapi.Problem(w, http.StatusBadGateway, "rewrite_failed", "目标页面无法安全改写")
+			httpapi.Problem(w, r, httpapi.ErrRewriteFailed)
 			return
 		}
 		response.Header.Del("Content-Length")
@@ -711,16 +731,16 @@ func hostname(value string) string {
 	}
 	return strings.TrimSuffix(value, ".")
 }
-func proxyID(w http.ResponseWriter, value string) (uuid.UUID, bool) {
+func proxyID(w http.ResponseWriter, r *http.Request, value string) (uuid.UUID, bool) {
 	id, err := uuid.Parse(value)
 	if err != nil {
-		httpapi.Problem(w, http.StatusBadRequest, "invalid_id", "ID 格式无效")
+		httpapi.Problem(w, r, httpapi.ErrInvalidID)
 		return uuid.Nil, false
 	}
 	return id, true
 }
-func proxyInternal(w http.ResponseWriter) {
-	httpapi.Problem(w, http.StatusInternalServerError, "internal_error", "服务器内部错误")
+func proxyInternal(w http.ResponseWriter, r *http.Request) {
+	httpapi.Problem(w, r, httpapi.ErrInternal)
 }
 func stripHopHeaders(header http.Header) {
 	for _, value := range header.Values("Connection") {
@@ -735,7 +755,7 @@ func stripHopHeaders(header http.Header) {
 func copyResponseHeaders(dst, src http.Header) {
 	for name, values := range src {
 		canonical := http.CanonicalHeaderKey(name)
-		if canonical == "Set-Cookie" || canonical == "Content-Security-Policy" || canonical == "Content-Security-Policy-Report-Only" || canonical == "X-Frame-Options" || isHopHeader(canonical) {
+		if canonical == "Set-Cookie" || canonical == "Content-Security-Policy" || canonical == "Content-Security-Policy-Report-Only" || canonical == "X-Frame-Options" || canonical == "Tvpn-Error-Code" || isHopHeader(canonical) {
 			continue
 		}
 		for _, value := range values {

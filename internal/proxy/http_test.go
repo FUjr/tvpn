@@ -72,3 +72,12 @@ func TestCompatibilityRequestRequiresModeAndOrigin(t *testing.T) {
 		t.Fatal("compatibility request was allowed for a document navigation")
 	}
 }
+
+func TestProxyBearerToken(t *testing.T) {
+	if token, ok := proxyBearerToken("Bearer tvpn_pat_value"); !ok || token != "tvpn_pat_value" {
+		t.Fatalf("unexpected token: %q, %v", token, ok)
+	}
+	if _, ok := proxyBearerToken("Basic value"); ok {
+		t.Fatal("non-Bearer proxy authentication was accepted")
+	}
+}

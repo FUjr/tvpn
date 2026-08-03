@@ -75,7 +75,7 @@ func (s *Service) serveMux(w http.ResponseWriter, r *http.Request, route Route) 
 			return
 		}
 		if messageType != websocket.MessageBinary || len(data) < 6 || data[0] != 1 {
-			_ = conn.Close(websocket.StatusUnsupportedData, "invalid Tvpn mux frame")
+			_ = conn.Close(websocket.StatusUnsupportedData, "error.proxy.mux.invalid_frame")
 			return
 		}
 		kind := data[1]
@@ -84,12 +84,12 @@ func (s *Service) serveMux(w http.ResponseWriter, r *http.Request, route Route) 
 		switch kind {
 		case frameStart:
 			if _, exists := states[id]; exists {
-				_ = writer.send(r.Context(), frameResponseError, id, []byte("duplicate stream"))
+				_ = writer.send(r.Context(), frameResponseError, id, []byte("error.proxy.mux.duplicate_stream"))
 				continue
 			}
 			var meta muxRequest
 			if json.Unmarshal(payload, &meta) != nil || meta.URL == "" || meta.Method == "" {
-				_ = writer.send(r.Context(), frameResponseError, id, []byte("invalid request metadata"))
+				_ = writer.send(r.Context(), frameResponseError, id, []byte("error.proxy.mux.invalid_metadata"))
 				continue
 			}
 			ctx, cancel := context.WithCancel(r.Context())
@@ -102,7 +102,7 @@ func (s *Service) serveMux(w http.ResponseWriter, r *http.Request, route Route) 
 			if state.body.Len()+len(payload) > maxMuxRequestBody {
 				state.cancel()
 				delete(states, id)
-				_ = writer.send(r.Context(), frameResponseError, id, []byte("request body exceeds 32 MiB"))
+				_ = writer.send(r.Context(), frameResponseError, id, []byte("error.proxy.mux.body_too_large"))
 				continue
 			}
 			_, _ = state.body.Write(payload)
@@ -125,27 +125,27 @@ func (s *Service) serveMux(w http.ResponseWriter, r *http.Request, route Route) 
 func (s *Service) executeMux(writer *muxWriter, id uint32, route Route, state *muxState) {
 	defer state.cancel()
 	if state.meta.Method == http.MethodConnect || state.meta.Method == http.MethodTrace {
-		s.muxError(writer, state.ctx, id, "unsupported request method")
+		s.muxError(writer, state.ctx, id, "error.proxy.mux.unsupported_method")
 		return
 	}
 	state.meta.URL = s.normalizeClientURL(state.ctx, route, state.meta.URL)
 	target, decision, err := s.authorize(state.ctx, route.UserID, state.meta.URL)
 	if err != nil || !decision.Allowed {
 		s.audit(state.ctx, route.UserID, "proxy.denied", state.meta.URL, "denied")
-		s.muxError(writer, state.ctx, id, "access policy denied request")
+		s.muxError(writer, state.ctx, id, "error.proxy.target_denied")
 		return
 	}
 	body := state.body.Bytes()
 	response, finalTarget, err := s.muxRoundTrip(state.ctx, route, target, state.meta, body)
 	if err != nil {
-		s.muxError(writer, state.ctx, id, "upstream request failed")
+		s.muxError(writer, state.ctx, id, "error.proxy.upstream_error")
 		return
 	}
 	defer response.Body.Close()
 	headers := map[string]string{}
 	for name, values := range response.Header {
 		canonical := http.CanonicalHeaderKey(name)
-		if canonical == "Set-Cookie" || isHopHeader(canonical) {
+		if canonical == "Set-Cookie" || canonical == "Tvpn-Error-Code" || isHopHeader(canonical) {
 			continue
 		}
 		headers[name] = strings.Join(values, ", ")
@@ -172,7 +172,7 @@ func (s *Service) executeMux(writer *muxWriter, id uint32, route Route, state *m
 			break
 		}
 		if readErr != nil {
-			s.muxError(writer, state.ctx, id, "upstream response interrupted")
+			s.muxError(writer, state.ctx, id, "error.proxy.mux.response_interrupted")
 			return
 		}
 	}
@@ -191,6 +191,7 @@ func (s *Service) muxRoundTrip(ctx context.Context, route Route, target Target, 
 			request.Header.Set(name, value)
 		}
 		stripHopHeaders(request.Header)
+		request.Header.Del("Tvpn-Error-Code")
 		request.Header.Del("Cookie")
 		request.Header.Del("Accept-Encoding")
 		cookies, err := s.store.Cookies(ctx, s.cipher, route.ContextID, httpCookieURL(current.URL))

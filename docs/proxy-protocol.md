@@ -28,7 +28,7 @@ HTML 解析器在目标脚本之前注入配置和 `/__tvpn/runtime.js`。服务
 | response/start | 11 | 服务端到浏览器 | status、statusText、headers、可见 Cookie JSON |
 | response/chunk | 12 | 服务端到浏览器 | 原始正文块 |
 | response/end | 13 | 服务端到浏览器 | 空 |
-| response/error | 14 | 服务端到浏览器 | UTF-8 错误摘要 |
+| response/error | 14 | 服务端到浏览器 | UTF-8 `message_id`，不包含自然语言文案 |
 
 单请求正文上限为 32 MiB。Fetch、异步 XHR、EventSource 和 Beacon 强制使用该通道；通道不可用时不会绕过代理直连。
 

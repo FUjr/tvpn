@@ -18,14 +18,14 @@ func (s *Service) serveWebSocket(w http.ResponseWriter, r *http.Request, route R
 	target, decision, err := s.authorizeWebSocket(r.Context(), route.UserID, raw)
 	if err != nil || !decision.Allowed {
 		s.audit(r.Context(), route.UserID, "proxy.websocket.denied", raw, "denied")
-		httpapi.Problem(w, http.StatusForbidden, "target_denied", "访问策略拒绝 WebSocket 目标")
+		httpapi.Problem(w, r, httpapi.ErrTargetDenied)
 		return
 	}
 	headers := http.Header{}
 	headers.Set("Origin", route.Scheme+"://"+hostWithPort(route.Host, route.Port, route.Scheme))
 	cookies, err := s.store.Cookies(r.Context(), s.cipher, route.ContextID, httpCookieURL(target.URL))
 	if err != nil {
-		proxyInternal(w)
+		proxyInternal(w, r)
 		return
 	}
 	for _, cookie := range cookies {
@@ -34,13 +34,13 @@ func (s *Service) serveWebSocket(w http.ResponseWriter, r *http.Request, route R
 	protocols := splitProtocols(r.Header.Get("Sec-WebSocket-Protocol"))
 	transport, err := s.transport(r.Context(), target, route)
 	if err != nil {
-		httpapi.Problem(w, http.StatusBadGateway, "upstream_proxy_unavailable", "上游代理不可用或授权已撤销")
+		httpapi.Problem(w, r, httpapi.ErrUpstreamProxyUnavailable)
 		return
 	}
 	upstream, response, err := websocket.Dial(r.Context(), target.URL.String(), &websocket.DialOptions{HTTPClient: &http.Client{Transport: transport}, HTTPHeader: headers, Subprotocols: protocols, CompressionMode: websocket.CompressionDisabled})
 	transport.CloseIdleConnections()
 	if err != nil {
-		httpapi.Problem(w, http.StatusBadGateway, "websocket_upstream_failed", "无法连接上游 WebSocket")
+		httpapi.Problem(w, r, httpapi.ErrWebSocketUpstreamFailed)
 		return
 	}
 	defer upstream.CloseNow()

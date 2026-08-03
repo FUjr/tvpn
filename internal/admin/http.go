@@ -64,7 +64,7 @@ func (h *HTTP) listUsers(w http.ResponseWriter, r *http.Request) {
 		COALESCE(array_agg(up.policy_id) FILTER (WHERE up.policy_id IS NOT NULL),'{}') FROM users u LEFT JOIN user_policies up ON up.user_id=u.id
 		GROUP BY u.id ORDER BY u.username`)
 	if err != nil {
-		internal(w)
+		internal(w, r)
 		return
 	}
 	defer rows.Close()
@@ -83,7 +83,7 @@ func (h *HTTP) listUsers(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var value item
 		if rows.Scan(&value.ID, &value.Username, &value.DisplayName, &value.Email, &value.AuthSource, &value.IsAdmin, &value.DisabledAt, &value.LastLoginAt, &value.PolicyIDs) != nil {
-			internal(w)
+			internal(w, r)
 			return
 		}
 		values = append(values, value)
@@ -104,7 +104,7 @@ func (h *HTTP) createUser(w http.ResponseWriter, r *http.Request) {
 	}
 	user, err := h.authStore.CreateLocalUser(r.Context(), input.Username, input.DisplayName, input.Email, input.Password, input.IsAdmin)
 	if err != nil {
-		httpapi.Problem(w, http.StatusUnprocessableEntity, "invalid_user", err.Error())
+		httpapi.Problem(w, r, httpapi.ErrInvalidUser)
 		return
 	}
 	h.audit(r, "user.create", "success", user.ID.String(), nil)
@@ -112,7 +112,7 @@ func (h *HTTP) createUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *HTTP) updateUser(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseID(w, chi.URLParam(r, "id"))
+	id, ok := parseID(w, r, chi.URLParam(r, "id"))
 	if !ok {
 		return
 	}
@@ -131,14 +131,14 @@ func (h *HTTP) updateUser(w http.ResponseWriter, r *http.Request) {
 		if h.db.QueryRow(r.Context(), `SELECT is_admin AND disabled_at IS NULL FROM users WHERE id=$1`, id).Scan(&active) == nil && active {
 			_ = h.db.QueryRow(r.Context(), `SELECT count(*) FROM users WHERE is_admin=true AND disabled_at IS NULL`).Scan(&count)
 			if count <= 1 {
-				httpapi.Problem(w, http.StatusConflict, "last_admin", "不能禁用或降级最后一个管理员")
+				httpapi.Problem(w, r, httpapi.ErrLastAdmin)
 				return
 			}
 		}
 	}
 	_, err := h.db.Exec(r.Context(), `UPDATE users SET display_name=COALESCE($2,display_name),email=COALESCE($3,email),is_admin=COALESCE($4,is_admin),disabled_at=CASE WHEN $5::boolean IS NULL THEN disabled_at WHEN $5 THEN now() ELSE NULL END,updated_at=now() WHERE id=$1`, id, input.DisplayName, input.Email, input.IsAdmin, input.Disabled)
 	if err != nil {
-		internal(w)
+		internal(w, r)
 		return
 	}
 	h.audit(r, "user.update", "success", id.String(), nil)
@@ -146,7 +146,7 @@ func (h *HTTP) updateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *HTTP) setPassword(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseID(w, chi.URLParam(r, "id"))
+	id, ok := parseID(w, r, chi.URLParam(r, "id"))
 	if !ok {
 		return
 	}
@@ -158,12 +158,12 @@ func (h *HTTP) setPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	hash, err := auth.HashPassword(input.Password)
 	if err != nil {
-		httpapi.Problem(w, http.StatusUnprocessableEntity, "invalid_password", err.Error())
+		httpapi.Problem(w, r, httpapi.ErrInvalidPassword)
 		return
 	}
 	tag, err := h.db.Exec(r.Context(), `UPDATE users SET password_hash=$2,updated_at=now() WHERE id=$1 AND auth_source='local'`, id, hash)
 	if err != nil || tag.RowsAffected() != 1 {
-		httpapi.Problem(w, http.StatusUnprocessableEntity, "invalid_user", "只能重置本地用户密码")
+		httpapi.Problem(w, r, httpapi.ErrInvalidUser)
 		return
 	}
 	_, _ = h.db.Exec(r.Context(), `DELETE FROM sessions WHERE user_id=$1`, id)
@@ -172,7 +172,7 @@ func (h *HTTP) setPassword(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *HTTP) setUserPolicies(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseID(w, chi.URLParam(r, "id"))
+	id, ok := parseID(w, r, chi.URLParam(r, "id"))
 	if !ok {
 		return
 	}
@@ -181,7 +181,7 @@ func (h *HTTP) setUserPolicies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := replaceAssignments(r.Context(), h.db, "user_policies", "user_id", id, input.PolicyIDs); err != nil {
-		httpapi.Problem(w, http.StatusUnprocessableEntity, "invalid_policy", err.Error())
+		httpapi.Problem(w, r, httpapi.ErrInvalidPolicy)
 		return
 	}
 	h.audit(r, "user.policies", "success", id.String(), map[string]any{"count": len(input.PolicyIDs)})
@@ -205,7 +205,7 @@ type policyInput struct {
 func (h *HTTP) listPolicies(w http.ResponseWriter, r *http.Request) {
 	values, err := h.policies(r.Context())
 	if err != nil {
-		internal(w)
+		internal(w, r)
 		return
 	}
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"items": values})
@@ -246,14 +246,14 @@ func (h *HTTP) createPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	id := uuid.New()
 	if err := h.savePolicy(r.Context(), id, input, true); err != nil {
-		httpapi.Problem(w, http.StatusUnprocessableEntity, "invalid_policy", err.Error())
+		httpapi.Problem(w, r, httpapi.ErrInvalidPolicy)
 		return
 	}
 	h.audit(r, "policy.create", "success", id.String(), nil)
 	httpapi.WriteJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
 func (h *HTTP) updatePolicy(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseID(w, chi.URLParam(r, "id"))
+	id, ok := parseID(w, r, chi.URLParam(r, "id"))
 	if !ok {
 		return
 	}
@@ -262,7 +262,7 @@ func (h *HTTP) updatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.savePolicy(r.Context(), id, input, false); err != nil {
-		httpapi.Problem(w, http.StatusUnprocessableEntity, "invalid_policy", err.Error())
+		httpapi.Problem(w, r, httpapi.ErrInvalidPolicy)
 		return
 	}
 	h.audit(r, "policy.update", "success", id.String(), nil)
@@ -308,13 +308,13 @@ func (h *HTTP) savePolicy(ctx context.Context, id uuid.UUID, input policyInput, 
 	return tx.Commit(ctx)
 }
 func (h *HTTP) deletePolicy(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseID(w, chi.URLParam(r, "id"))
+	id, ok := parseID(w, r, chi.URLParam(r, "id"))
 	if !ok {
 		return
 	}
 	_, err := h.db.Exec(r.Context(), `DELETE FROM policies WHERE id=$1`, id)
 	if err != nil {
-		internal(w)
+		internal(w, r)
 		return
 	}
 	h.audit(r, "policy.delete", "success", id.String(), nil)
@@ -324,7 +324,7 @@ func (h *HTTP) deletePolicy(w http.ResponseWriter, r *http.Request) {
 func (h *HTTP) getLDAP(w http.ResponseWriter, r *http.Request) {
 	value, err := h.ldap.Settings(r.Context())
 	if err != nil {
-		internal(w)
+		internal(w, r)
 		return
 	}
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"settings": value, "bind_password_configured": h.ldap.BindPasswordConfigured()})
@@ -335,7 +335,7 @@ func (h *HTTP) updateLDAP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.ldap.UpdateSettings(r.Context(), value); err != nil {
-		httpapi.Problem(w, http.StatusUnprocessableEntity, "invalid_ldap", err.Error())
+		httpapi.Problem(w, r, httpapi.ErrInvalidLDAP)
 		return
 	}
 	h.audit(r, "ldap.update", "success", "ldap", nil)
@@ -343,8 +343,8 @@ func (h *HTTP) updateLDAP(w http.ResponseWriter, r *http.Request) {
 }
 func (h *HTTP) testLDAP(w http.ResponseWriter, r *http.Request) {
 	if err := h.ldap.Test(r.Context()); err != nil {
-		h.audit(r, "ldap.test", "failure", "ldap", map[string]any{"error": "connection failed"})
-		httpapi.Problem(w, http.StatusBadGateway, "ldap_unavailable", "LDAP 连接或服务绑定失败")
+		h.audit(r, "ldap.test", "failure", "ldap", map[string]any{"message_id": "error.admin.ldap_unavailable"})
+		httpapi.Problem(w, r, httpapi.ErrLDAPUnavailable)
 		return
 	}
 	h.audit(r, "ldap.test", "success", "ldap", nil)
@@ -353,7 +353,7 @@ func (h *HTTP) testLDAP(w http.ResponseWriter, r *http.Request) {
 func (h *HTTP) listGroups(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(r.Context(), `SELECT g.id,g.external_dn,g.name,g.last_seen_at,COALESCE(array_agg(gp.policy_id)FILTER(WHERE gp.policy_id IS NOT NULL),'{}')FROM ldap_groups g LEFT JOIN ldap_group_policies gp ON gp.group_id=g.id GROUP BY g.id ORDER BY g.name`)
 	if err != nil {
-		internal(w)
+		internal(w, r)
 		return
 	}
 	defer rows.Close()
@@ -368,7 +368,7 @@ func (h *HTTP) listGroups(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var value item
 		if rows.Scan(&value.ID, &value.ExternalDN, &value.Name, &value.LastSeenAt, &value.PolicyIDs) != nil {
-			internal(w)
+			internal(w, r)
 			return
 		}
 		values = append(values, value)
@@ -376,7 +376,7 @@ func (h *HTTP) listGroups(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"items": values})
 }
 func (h *HTTP) setGroupPolicies(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseID(w, chi.URLParam(r, "id"))
+	id, ok := parseID(w, r, chi.URLParam(r, "id"))
 	if !ok {
 		return
 	}
@@ -385,7 +385,7 @@ func (h *HTTP) setGroupPolicies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := replaceAssignments(r.Context(), h.db, "ldap_group_policies", "group_id", id, input.PolicyIDs); err != nil {
-		httpapi.Problem(w, http.StatusUnprocessableEntity, "invalid_policy", err.Error())
+		httpapi.Problem(w, r, httpapi.ErrInvalidPolicy)
 		return
 	}
 	h.audit(r, "group.policies", "success", id.String(), map[string]any{"count": len(input.PolicyIDs)})
@@ -399,7 +399,7 @@ type resourceAssignment struct {
 func (h *HTTP) listUpstreamProxies(w http.ResponseWriter, r *http.Request) {
 	values, err := h.upstreams.List(r.Context())
 	if err != nil {
-		internal(w)
+		internal(w, r)
 		return
 	}
 	type item struct {
@@ -412,14 +412,14 @@ func (h *HTTP) listUpstreamProxies(w http.ResponseWriter, r *http.Request) {
 		entry := item{Upstream: value, UserIDs: []uuid.UUID{}, GroupIDs: []uuid.UUID{}}
 		userRows, queryErr := h.db.Query(r.Context(), `SELECT user_id FROM user_upstream_proxies WHERE upstream_proxy_id=$1 ORDER BY user_id`, value.ID)
 		if queryErr != nil {
-			internal(w)
+			internal(w, r)
 			return
 		}
 		for userRows.Next() {
 			var id uuid.UUID
 			if userRows.Scan(&id) != nil {
 				userRows.Close()
-				internal(w)
+				internal(w, r)
 				return
 			}
 			entry.UserIDs = append(entry.UserIDs, id)
@@ -427,14 +427,14 @@ func (h *HTTP) listUpstreamProxies(w http.ResponseWriter, r *http.Request) {
 		userRows.Close()
 		groupRows, queryErr := h.db.Query(r.Context(), `SELECT group_id FROM ldap_group_upstream_proxies WHERE upstream_proxy_id=$1 ORDER BY group_id`, value.ID)
 		if queryErr != nil {
-			internal(w)
+			internal(w, r)
 			return
 		}
 		for groupRows.Next() {
 			var id uuid.UUID
 			if groupRows.Scan(&id) != nil {
 				groupRows.Close()
-				internal(w)
+				internal(w, r)
 				return
 			}
 			entry.GroupIDs = append(entry.GroupIDs, id)
@@ -452,7 +452,7 @@ func (h *HTTP) createUpstreamProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := h.upstreams.Create(r.Context(), input)
 	if err != nil {
-		httpapi.Problem(w, http.StatusUnprocessableEntity, "invalid_upstream_proxy", err.Error())
+		httpapi.Problem(w, r, httpapi.ErrInvalidUpstreamProxy)
 		return
 	}
 	h.audit(r, "upstream_proxy.create", "success", id.String(), map[string]any{"type": input.Type})
@@ -460,7 +460,7 @@ func (h *HTTP) createUpstreamProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *HTTP) updateUpstreamProxy(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseID(w, chi.URLParam(r, "id"))
+	id, ok := parseID(w, r, chi.URLParam(r, "id"))
 	if !ok {
 		return
 	}
@@ -469,7 +469,7 @@ func (h *HTTP) updateUpstreamProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.upstreams.Update(r.Context(), id, input); err != nil {
-		httpapi.Problem(w, http.StatusUnprocessableEntity, "invalid_upstream_proxy", err.Error())
+		httpapi.Problem(w, r, httpapi.ErrInvalidUpstreamProxy)
 		return
 	}
 	h.audit(r, "upstream_proxy.update", "success", id.String(), map[string]any{"type": input.Type})
@@ -477,12 +477,12 @@ func (h *HTTP) updateUpstreamProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *HTTP) deleteUpstreamProxy(w http.ResponseWriter, r *http.Request) {
-	id, ok := parseID(w, chi.URLParam(r, "id"))
+	id, ok := parseID(w, r, chi.URLParam(r, "id"))
 	if !ok {
 		return
 	}
 	if err := h.upstreams.Delete(r.Context(), id); err != nil {
-		httpapi.Problem(w, http.StatusNotFound, "upstream_proxy_not_found", "上游代理不存在")
+		httpapi.Problem(w, r, httpapi.ErrUpstreamProxyNotFound)
 		return
 	}
 	h.audit(r, "upstream_proxy.delete", "success", id.String(), nil)
@@ -498,7 +498,7 @@ func (h *HTTP) setUpstreamProxyGroups(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *HTTP) setUpstreamAssignments(w http.ResponseWriter, r *http.Request, table, column, eventType string) {
-	id, ok := parseID(w, chi.URLParam(r, "id"))
+	id, ok := parseID(w, r, chi.URLParam(r, "id"))
 	if !ok {
 		return
 	}
@@ -507,7 +507,7 @@ func (h *HTTP) setUpstreamAssignments(w http.ResponseWriter, r *http.Request, ta
 		return
 	}
 	if err := replaceResourceAssignments(r.Context(), h.db, table, column, id, input.IDs); err != nil {
-		httpapi.Problem(w, http.StatusUnprocessableEntity, "invalid_assignment", err.Error())
+		httpapi.Problem(w, r, httpapi.ErrInvalidAssignment)
 		return
 	}
 	h.audit(r, eventType, "success", id.String(), map[string]any{"count": len(input.IDs)})
@@ -517,7 +517,7 @@ func (h *HTTP) setUpstreamAssignments(w http.ResponseWriter, r *http.Request, ta
 func (h *HTTP) getDirectAccess(w http.ResponseWriter, r *http.Request) {
 	value, err := h.upstreams.DirectAccess(r.Context())
 	if err != nil {
-		internal(w)
+		internal(w, r)
 		return
 	}
 	httpapi.WriteJSON(w, http.StatusOK, value)
@@ -531,7 +531,7 @@ func (h *HTTP) updateDirectAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.upstreams.SetDirectRestricted(r.Context(), input.Restricted); err != nil {
-		internal(w)
+		internal(w, r)
 		return
 	}
 	h.audit(r, "direct_access.update", "success", "direct", map[string]any{"restricted": input.Restricted})
@@ -552,7 +552,7 @@ func (h *HTTP) setDirectAssignments(w http.ResponseWriter, r *http.Request, tabl
 		return
 	}
 	if err := replaceDirectAssignments(r.Context(), h.db, table, column, input.IDs); err != nil {
-		httpapi.Problem(w, http.StatusUnprocessableEntity, "invalid_assignment", err.Error())
+		httpapi.Problem(w, r, httpapi.ErrInvalidAssignment)
 		return
 	}
 	h.audit(r, eventType, "success", "direct", map[string]any{"count": len(input.IDs)})
@@ -562,7 +562,7 @@ func (h *HTTP) setDirectAssignments(w http.ResponseWriter, r *http.Request, tabl
 func (h *HTTP) listAudit(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(r.Context(), `SELECT id,actor_user_id,event_type,outcome,target,detail,created_at FROM audit_events ORDER BY id DESC LIMIT 200`)
 	if err != nil {
-		internal(w)
+		internal(w, r)
 		return
 	}
 	defer rows.Close()
@@ -579,7 +579,7 @@ func (h *HTTP) listAudit(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var value item
 		if rows.Scan(&value.ID, &value.ActorUserID, &value.EventType, &value.Outcome, &value.Target, &value.Detail, &value.CreatedAt) != nil {
-			internal(w)
+			internal(w, r)
 			return
 		}
 		values = append(values, value)
@@ -654,14 +654,14 @@ func replaceDirectAssignments(ctx context.Context, db *pgxpool.Pool, table, colu
 	}
 	return tx.Commit(ctx)
 }
-func parseID(w http.ResponseWriter, value string) (uuid.UUID, bool) {
+func parseID(w http.ResponseWriter, r *http.Request, value string) (uuid.UUID, bool) {
 	id, err := uuid.Parse(value)
 	if err != nil {
-		httpapi.Problem(w, http.StatusBadRequest, "invalid_id", "ID 格式无效")
+		httpapi.Problem(w, r, httpapi.ErrInvalidID)
 		return uuid.Nil, false
 	}
 	return id, true
 }
-func internal(w http.ResponseWriter) {
-	httpapi.Problem(w, http.StatusInternalServerError, "internal_error", "服务器内部错误")
+func internal(w http.ResponseWriter, r *http.Request) {
+	httpapi.Problem(w, r, httpapi.ErrInternal)
 }

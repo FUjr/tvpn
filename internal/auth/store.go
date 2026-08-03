@@ -43,6 +43,8 @@ type Session struct {
 	CSRFToken string
 	ExpiresAt time.Time
 	User      User
+	Method    string
+	Scopes    map[string]bool
 }
 
 type Store struct{ db *pgxpool.Pool }
@@ -139,7 +141,7 @@ func (s *Store) CreateSession(ctx context.Context, user User, ttl time.Duration)
 	}
 	expires := time.Now().Add(ttl)
 	_, err = s.db.Exec(ctx, `INSERT INTO sessions (token_hash,user_id,csrf_token,expires_at) VALUES ($1,$2,$3,$4)`, tokenHash, user.ID, csrf, expires)
-	return Session{Token: token, CSRFToken: csrf, ExpiresAt: expires, User: user}, err
+	return Session{Token: token, CSRFToken: csrf, ExpiresAt: expires, User: user, Method: "session"}, err
 }
 
 func (s *Store) SessionByToken(ctx context.Context, token string) (Session, error) {
@@ -154,6 +156,7 @@ func (s *Store) SessionByToken(ctx context.Context, token string) (Session, erro
 		return Session{}, ErrInvalidCredentials
 	}
 	if err == nil {
+		session.Method = "session"
 		_, _ = s.db.Exec(ctx, `UPDATE sessions SET last_seen_at=now() WHERE token_hash=$1 AND last_seen_at<now()-interval '5 minutes'`, hash[:])
 	}
 	return session, err

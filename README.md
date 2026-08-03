@@ -18,6 +18,8 @@ WebVPN 转发已实现独立 Origin 路由、一次性 bootstrap、请求级策�
 
 Web 界面提供登录、浏览器式地址栏、出口选择与内嵌代理页面。管理员可在同一界面维护本地用户、用户/LDAP 组策略、HTTP/SOCKS5 上游代理、LDAP 参数和审计日志；前端请求统一声明在 `web/src/api/client.ts`。
 
+程序调用支持可撤销的 PAT、独立的代理鉴权头和结构化多语言错误。仓库提供 Go、Python、TypeScript SDK 及 `tvpnctl` CLI；创建令牌、调用流程和示例见 [`docs/programmatic-access.md`](docs/programmatic-access.md)，完整错误码见 [`docs/error-codes.md`](docs/error-codes.md)。Web 界面全部使用文案 ID，并可在简体中文和英文间切换。
+
 ## 开发环境
 
 要求 Docker 及 Docker Compose：

@@ -55,7 +55,7 @@ docker compose up -d --no-build
 
 复制 `deploy/nginx/tvpn.conf.example` 到 `/etc/nginx/conf.d/tvpn.conf` 或其他由 Nginx `http {}` 引入的位置，并将示例域名、证书路径和上游端口改成 `.env` 中的实际值。该文件是 `http` 配置片段，不是完整的顶层 `nginx.conf`。
 
-Nginx 必须保留原始 `Host`，Tvpn 依靠 Host 区分管理域和随机代理域。WebSocket 反向代理还必须显式传递 `Upgrade` 和 `Connection`，参见 [Nginx WebSocket proxying](https://nginx.org/en/docs/http/websocket.html)。
+Nginx 必须保留原始 `Host`，Tvpn 依靠 Host 区分管理域和随机代理域。程序调用还要求将客户端的 `Proxy-Authorization` 原样传给 Tvpn；示例显式设置该请求头，Tvpn 完成鉴权后会在访问目标接口前删除它。WebSocket 反向代理还必须显式传递 `Upgrade` 和 `Connection`，参见 [Nginx WebSocket proxying](https://nginx.org/en/docs/http/websocket.html)。
 
 ```sh
 nginx -t

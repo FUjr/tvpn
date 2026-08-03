@@ -17,6 +17,7 @@ import (
 	"github.com/FUjr/tvpn/internal/auth"
 	"github.com/FUjr/tvpn/internal/config"
 	"github.com/FUjr/tvpn/internal/database"
+	"github.com/FUjr/tvpn/internal/httpapi"
 	"github.com/FUjr/tvpn/internal/ldapauth"
 	proxyservice "github.com/FUjr/tvpn/internal/proxy"
 	webassets "github.com/FUjr/tvpn/web"
@@ -76,22 +77,30 @@ func (s *Server) routes() http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(s.authHTTP.Authenticate)
 			r.Get("/session", s.authHTTP.Session)
-			r.With(s.authHTTP.RequireCSRF).Post("/logout", s.authHTTP.Logout)
+			r.With(s.authHTTP.RequireBrowserSession, s.authHTTP.RequireCSRF).Post("/logout", s.authHTTP.Logout)
+			r.Route("/tokens", func(r chi.Router) {
+				r.Use(s.authHTTP.RequireBrowserSession)
+				r.Use(s.authHTTP.RequireCSRF)
+				r.Mount("/", s.authHTTP.TokenRoutes())
+			})
 		})
 	})
 	r.Route("/api/v1/admin", func(r chi.Router) {
 		r.Use(s.authHTTP.Authenticate)
 		r.Use(s.authHTTP.RequireAdmin)
+		r.Use(s.authHTTP.RequireScope(auth.ScopeAdmin))
 		r.Use(s.authHTTP.RequireCSRF)
 		r.Mount("/", s.adminHTTP.Routes())
 	})
 	r.Route("/api/v1/proxy/contexts", func(r chi.Router) {
 		r.Use(s.authHTTP.Authenticate)
+		r.Use(s.authHTTP.RequireScope(auth.ScopeProxy))
 		r.Use(s.authHTTP.RequireCSRF)
 		r.Mount("/", s.proxyHTTP.AppRoutes())
 	})
 	r.Route("/api/v1/proxy/upstreams", func(r chi.Router) {
 		r.Use(s.authHTTP.Authenticate)
+		r.Use(s.authHTTP.RequireScope(auth.ScopeProxy))
 		r.Get("/", s.proxyHTTP.AvailableUpstreams)
 	})
 	r.Get("/health/live", func(w http.ResponseWriter, _ *http.Request) {
@@ -108,7 +117,7 @@ func (s *Server) routes() http.Handler {
 	})
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+			httpapi.Problem(w, r, httpapi.ErrNotFound)
 			return
 		}
 		serveWeb(w, r)
@@ -127,7 +136,7 @@ func serveWeb(w http.ResponseWriter, r *http.Request) {
 		data, err = fs.ReadFile(webassets.Dist, "dist/index.html")
 	}
 	if err != nil {
-		http.Error(w, "web interface unavailable", http.StatusServiceUnavailable)
+		httpapi.Problem(w, r, httpapi.ErrWebUnavailable)
 		return
 	}
 	if contentType := mime.TypeByExtension(path.Ext(name)); contentType != "" {
@@ -157,7 +166,7 @@ func (s *Server) Handler() http.Handler {
 		case proxyHostKind:
 			s.proxyHTTP.ServeHTTP(w, r)
 		default:
-			http.Error(w, "misdirected request", http.StatusMisdirectedRequest)
+			httpapi.Problem(w, r, httpapi.ErrMisdirectedRequest)
 		}
 	})
 }

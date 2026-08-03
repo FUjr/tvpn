@@ -41,12 +41,12 @@ func (h *HTTP) Login(w http.ResponseWriter, r *http.Request) {
 	user, err := h.authenticate(r.Context(), input.Username, input.Password)
 	if err != nil {
 		h.store.Audit(r.Context(), nil, "auth.login", "failure", strings.ToLower(strings.TrimSpace(input.Username)))
-		httpapi.Problem(w, http.StatusUnauthorized, "invalid_credentials", "用户名或密码错误")
+		httpapi.Problem(w, r, httpapi.ErrInvalidCredentials)
 		return
 	}
 	session, err := h.store.CreateSession(r.Context(), user, h.ttl)
 	if err != nil {
-		httpapi.Problem(w, http.StatusInternalServerError, "internal_error", "无法创建会话")
+		httpapi.Problem(w, r, httpapi.ErrInternal)
 		return
 	}
 	h.setCookie(w, session.Token, session.ExpiresAt)
@@ -78,7 +78,7 @@ func (h *HTTP) authenticate(ctx context.Context, username, password string) (Use
 func (h *HTTP) Session(w http.ResponseWriter, r *http.Request) {
 	session, ok := SessionFromContext(r.Context())
 	if !ok {
-		httpapi.Problem(w, http.StatusUnauthorized, "unauthorized", "需要登录")
+		httpapi.Problem(w, r, httpapi.ErrUnauthorized)
 		return
 	}
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"user": session.User, "csrf_token": session.CSRFToken, "expires_at": session.ExpiresAt})
@@ -97,14 +97,23 @@ func (h *HTTP) Logout(w http.ResponseWriter, r *http.Request) {
 
 func (h *HTTP) Authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if token, ok := bearerToken(r.Header.Get("Authorization")); ok {
+			session, err := h.store.SessionByProgramToken(r.Context(), token)
+			if err != nil {
+				httpapi.Problem(w, r, httpapi.ErrInvalidToken)
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), sessionContextKey, session)))
+			return
+		}
 		cookie, err := r.Cookie(h.cookieName())
 		if err != nil {
-			httpapi.Problem(w, http.StatusUnauthorized, "unauthorized", "需要登录")
+			httpapi.Problem(w, r, httpapi.ErrUnauthorized)
 			return
 		}
 		session, err := h.store.SessionByToken(r.Context(), cookie.Value)
 		if err != nil {
-			httpapi.Problem(w, http.StatusUnauthorized, "unauthorized", "会话已失效")
+			httpapi.Problem(w, r, httpapi.ErrUnauthorized)
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), sessionContextKey, session)))
@@ -118,9 +127,13 @@ func (h *HTTP) RequireCSRF(next http.Handler) http.Handler {
 			return
 		}
 		session, ok := SessionFromContext(r.Context())
+		if ok && session.Method == "token" {
+			next.ServeHTTP(w, r)
+			return
+		}
 		token := r.Header.Get("X-CSRF-Token")
 		if !ok || len(token) != len(session.CSRFToken) || subtle.ConstantTimeCompare([]byte(token), []byte(session.CSRFToken)) != 1 {
-			httpapi.Problem(w, http.StatusForbidden, "csrf_failed", "CSRF 校验失败")
+			httpapi.Problem(w, r, httpapi.ErrCSRFFailed)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -146,9 +159,46 @@ func (h *HTTP) RequireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		session, ok := SessionFromContext(r.Context())
 		if !ok || !session.User.IsAdmin {
-			httpapi.Problem(w, http.StatusForbidden, "admin_required", "需要管理员权限")
+			httpapi.Problem(w, r, httpapi.ErrAdminRequired)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (h *HTTP) RequireScope(scope string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			session, ok := SessionFromContext(r.Context())
+			if !ok {
+				httpapi.Problem(w, r, httpapi.ErrUnauthorized)
+				return
+			}
+			if session.Method == "token" && !session.Scopes[scope] {
+				httpapi.Problem(w, r, httpapi.ErrScopeRequired)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func (h *HTTP) RequireBrowserSession(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		session, ok := SessionFromContext(r.Context())
+		if !ok || session.Method != "session" {
+			httpapi.Problem(w, r, httpapi.ErrUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func bearerToken(value string) (string, bool) {
+	parts := strings.Fields(value)
+	returnValue := ""
+	if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+		returnValue = parts[1]
+	}
+	return returnValue, returnValue != ""
 }

@@ -4,6 +4,8 @@
 
 管理界面、代理基础域和每个上游 Origin 使用不同浏览器 Origin。应用会话是管理域 Host-only Cookie；代理会话只对代理基础域有效。一次性票据负责在二者间建立关联，不把应用会话交给上游脚本。
 
+程序调用使用可撤销的 PAT。管理 API 从 `Authorization` 读取 PAT；随机代理域从 `Proxy-Authorization` 读取同一 PAT并在转发前删除该头，因此目标接口可以独立使用自己的 `Authorization`。PAT 只保存 SHA-256 摘要，并同时校验过期、撤销、Scope、所属用户状态和当前管理员状态。Bearer 鉴权不依赖浏览器 Cookie，因而不执行 CSRF；令牌创建和撤销只允许浏览器会话并继续要求 CSRF。
+
 ## SSRF 与策略
 
 - 用户入口可省略协议并自动补全为 `http://`；进入策略与代理层前只接受无用户信息的绝对 HTTP/HTTPS URL，显式 `https://` 保持不变。

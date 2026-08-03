@@ -1,0 +1,10 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tvpn-sdk"
+version = "0.1.0"
+description = "Programmatic HTTP client for Tvpn"
+requires-python = ">=3.9"
+license = { text = "AGPL-3.0-only" }

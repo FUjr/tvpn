@@ -11,5 +11,10 @@ web/vite.config.js
 web/vite.config.d.ts
 web/test-results/
 web/playwright-report/
+sdk/python/**/__pycache__/
+sdk/python/build/
+sdk/python/*.egg-info/
+sdk/typescript/dist/
+sdk/typescript/node_modules/
 *.log
 .DS_Store

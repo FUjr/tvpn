@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -10,7 +9,8 @@ import (
 
 func TestProblemContentType(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	httpapi.Problem(recorder, http.StatusBadRequest, "invalid_request", "bad request")
+	request := httptest.NewRequest("GET", "/", nil)
+	httpapi.Problem(recorder, request, httpapi.ErrInvalidRequest)
 	if got := recorder.Header().Get("Content-Type"); got != "application/problem+json" {
 		t.Fatalf("unexpected content type: %s", got)
 	}

@@ -31,11 +31,12 @@ export type LDAPSettings = {
 }
 export type LDAPGroup = { id: string; external_dn: string; name: string; last_seen_at: string; policy_ids: string[] }
 export type AuditEvent = { id: number; actor_user_id?: string | null; event_type: string; outcome: string; target: string; detail: unknown; created_at: string }
+export type ProgramToken = { id: string; name: string; prefix: string; scopes: ('proxy' | 'admin')[]; expires_at: string; last_used_at?: string | null; created_at: string }
 
 let csrfToken = ''
 
 export class APIError extends Error {
-  constructor(public status: number, message: string) { super(message) }
+  constructor(public status: number, public code: string, public messageID: string, message: string) { super(message) }
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -44,8 +45,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (init.method && !['GET', 'HEAD'].includes(init.method)) headers.set('X-CSRF-Token', csrfToken)
   const response = await fetch(`/api/v1${path}`, { ...init, headers, credentials: 'same-origin' })
   if (!response.ok) {
-    const problem = await response.json().catch(() => null) as { detail?: string } | null
-    throw new APIError(response.status, problem?.detail || `请求失败 (${response.status})`)
+    const problem = await response.json().catch(() => null) as { code?: string; message_id?: string; message?: string } | null
+    throw new APIError(response.status, problem?.code || 'unknown_error', problem?.message_id || 'error.common.request_failed', problem?.message || `Request failed (${response.status})`)
   }
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
@@ -58,6 +59,9 @@ export const api = {
   session: () => request<Session>('/auth/session').then(remember),
   login: (username: string, password: string) => request<Session>('/auth/login', { method: 'POST', body: json({ username, password }) }).then(remember),
   logout: () => request<void>('/auth/logout', { method: 'POST' }).finally(() => { csrfToken = '' }),
+  tokens: () => request<{ items: ProgramToken[] }>('/auth/tokens/'),
+  createToken: (value: { name: string; scopes: string[]; expires_at?: string }) => request<{ token: ProgramToken; secret: string }>('/auth/tokens/', { method: 'POST', body: json(value) }),
+  revokeToken: (id: string) => request<void>(`/auth/tokens/${id}`, { method: 'DELETE' }),
   availableUpstreams: () => request<{ direct_allowed: boolean; items: UpstreamProxy[] }>('/proxy/upstreams/'),
   createContext: (url: string, upstream_proxy_id?: string, compatibility_mode = false) => request<Navigation>('/proxy/contexts/', { method: 'POST', body: json({ url, upstream_proxy_id: upstream_proxy_id || null, compatibility_mode }) }),
   navigate: (id: string, url: string) => request<Navigation>(`/proxy/contexts/${id}/navigate`, { method: 'POST', body: json({ url }) }),
